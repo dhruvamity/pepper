@@ -87,6 +87,11 @@ export class S3Provider implements StorageProvider {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.cfg.bucket, Key: key }));
   }
 
+  /** Cheapest call that proves the key works for this bucket (lists at most one object). */
+  async ping() {
+    await this.client.send(new ListObjectsV2Command({ Bucket: this.cfg.bucket, MaxKeys: 1 }));
+  }
+
   async measure() {
     let bytes = 0;
     let objects = 0;
