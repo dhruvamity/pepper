@@ -1,26 +1,178 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Pepper design tokens — modelled on the Spotify web player (Figma kit): black chrome,
+   #121212 surfaces, #181818 cards, green accent, white/grey type. */
+@theme {
+  --color-surface: #121212;
+  --color-chrome: #000000;
+  --color-card: #181818;
+  --color-card-hover: #282828;
+  --color-elevated: #242424;
+  --color-elevated-hover: #2a2a2a;
+  --color-highlight: #333333;
+  --color-line: #2a2a2a;
+  --color-essential: #ffffff;
+  --color-subdued: #b3b3b3;
+  --color-muted: #6a6a6a;
+  --color-accent: #1ed760;
+  --color-accent-hover: #3be477;
+  --color-accent-press: #1aa34a;
+  --color-danger: #f3727f;
+  --color-warning: #ffa42b;
+  --color-info: #3d91f4;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --font-sans: var(--font-figtree), "Helvetica Neue", Helvetica, Arial, sans-serif;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --radius-card: 8px;
+  --shadow-cover: 0 8px 24px rgb(0 0 0 / 0.5);
+  --shadow-float: 0 16px 24px rgb(0 0 0 / 0.3), 0 6px 8px rgb(0 0 0 / 0.2);
+
+  --animate-slide-up: slide-up 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-eq: eq 0.9s ease-in-out infinite;
+
+  @keyframes slide-up {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes eq {
+    0%,
+    100% {
+      transform: scaleY(0.3);
+    }
+    50% {
+      transform: scaleY(1);
+    }
   }
 }
 
+:root {
+  color-scheme: dark;
+  --mini-player-h: 56px;
+  --bottom-nav-h: 64px;
+  --player-bar-h: 80px;
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-chrome);
+  color: var(--color-essential);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: rgb(30 215 96 / 0.35);
+}
+
+/* Thin dark scrollbars like the web player */
+.scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.25) transparent;
+}
+.scroll-area::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.25);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Range inputs used for seek & volume */
+.range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  background: transparent;
+  cursor: pointer;
+  --pct: 0%;
+}
+.range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--fill, #fff) var(--pct), rgb(255 255 255 / 0.3) var(--pct));
+}
+.range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--fill, #fff) var(--pct), rgb(255 255 255 / 0.3) var(--pct));
+}
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 999px;
+  background: #fff;
+  opacity: var(--thumb, 0);
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.5);
+}
+.range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  opacity: var(--thumb, 0);
+}
+.range:hover,
+.range:focus-visible,
+.range.always-thumb {
+  --fill: var(--color-accent);
+  --thumb: 1;
+}
+.range.always-thumb {
+  --fill: #fff;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* Header gradient used on album / artist / playlist pages */
+.page-gradient {
+  background-image: linear-gradient(to bottom, var(--hdr) 0%, color-mix(in srgb, var(--hdr) 45%, #121212) 60%, #121212 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }

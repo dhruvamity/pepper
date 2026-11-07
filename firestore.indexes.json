@@ -1,0 +1,51 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "plays",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    { "collectionGroup": "catalog", "fieldPath": "t", "indexes": [] },
+    { "collectionGroup": "catalog", "fieldPath": "a", "indexes": [] },
+    { "collectionGroup": "catalog", "fieldPath": "p", "indexes": [] },
+    { "collectionGroup": "stats", "fieldPath": "t", "indexes": [] },
+    { "collectionGroup": "cooc", "fieldPath": "n", "indexes": [] },
+    { "collectionGroup": "taste", "fieldPath": "artists", "indexes": [] },
+    { "collectionGroup": "taste", "fieldPath": "genres", "indexes": [] },
+    { "collectionGroup": "taste", "fieldPath": "tracks", "indexes": [] },
+    { "collectionGroup": "taste", "fieldPath": "last", "indexes": [] },
+    { "collectionGroup": "taste", "fieldPath": "plays", "indexes": [] },
+    { "collectionGroup": "taste", "fieldPath": "skips", "indexes": [] },
+    { "collectionGroup": "taste", "fieldPath": "hours", "indexes": [] },
+    { "collectionGroup": "daily", "fieldPath": "users", "indexes": [] },
+    { "collectionGroup": "daily", "fieldPath": "tracks", "indexes": [] },
+    { "collectionGroup": "daily", "fieldPath": "hours", "indexes": [] },
+    { "collectionGroup": "daily", "fieldPath": "sources", "indexes": [] },
+    { "collectionGroup": "libraries", "fieldPath": "likes", "indexes": [] },
+    { "collectionGroup": "libraries", "fieldPath": "artists", "indexes": [] },
+    { "collectionGroup": "libraries", "fieldPath": "albums", "indexes": [] },
+    { "collectionGroup": "libraries", "fieldPath": "playlists", "indexes": [] },
+    { "collectionGroup": "playlists", "fieldPath": "trackIds", "indexes": [] },
+    { "collectionGroup": "lyrics", "fieldPath": "synced", "indexes": [] },
+    { "collectionGroup": "lyrics", "fieldPath": "plain", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "trackId", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "prevTrackId", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "startedAt", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "listenedMs", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "durationMs", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "endReason", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "source", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "sessionId", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "shuffle", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "device", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "tz", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "id", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "outcome", "indexes": [] },
+    { "collectionGroup": "plays", "fieldPath": "weight", "indexes": [] }
+  ]
+}
