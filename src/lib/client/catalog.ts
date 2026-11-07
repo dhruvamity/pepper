@@ -275,6 +275,7 @@ function buildSearch(tracks: CatalogTrack[], albums: AlbumView[], artists: Artis
 export function useCatalog() {
   const { data, error, isLoading, mutate } = useSWR<CatalogSnapshot>("/api/catalog", fetcher, {
     revalidateOnFocus: true,
+    refreshInterval: 30_000,
     dedupingInterval: 10_000,
     keepPreviousData: true,
   });

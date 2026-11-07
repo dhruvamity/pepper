@@ -11,7 +11,7 @@ export const GET = route(async (req) => {
   await requireUser(req);
   const db = await repo();
   const catalog = await db.getCatalog();
-  const etag = `"c${catalog.version}-${catalog.tracks.length}"`;
+  const etag = `"c2-${catalog.version}-${catalog.tracks.length}"`;
   if (req.headers.get("if-none-match") === etag) {
     return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": "private, no-cache" } });
   }

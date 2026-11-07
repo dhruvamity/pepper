@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/client/auth";
+import { sendJamAction } from "@/lib/client/jam";
 import { useMe } from "@/lib/client/me";
 import { usePlayer } from "@/lib/client/player/store";
 import { useUI } from "@/lib/client/ui";
@@ -61,6 +62,7 @@ export function ProfileSheet() {
           icon={<LogoutIcon />}
           onClick={async () => {
             setOpen(false);
+            await sendJamAction({ type: "leave" });
             usePlayer.getState().stop();
             await signOut();
             router.replace("/login");

@@ -79,7 +79,7 @@ export function MixCard({ mix }: { mix: MixSummary }) {
 }
 
 /** Track card for shelves: tapping it plays the shelf from that song. */
-export function TrackCard({ track, list, index, ctx, reason }: { track: CatalogTrack; list: string[]; index: number; ctx: PlayContext; reason?: string }) {
+export function TrackCard({ track, list, index, ctx, reason, compact }: { track: CatalogTrack; list: string[]; index: number; ctx: PlayContext; reason?: string; compact?: boolean }) {
   const isCurrent = usePlayer((s) => s.currentId === track.id);
   const playing = usePlayer((s) => s.playing && s.currentId === track.id);
   const play = () => {
@@ -87,6 +87,17 @@ export function TrackCard({ track, list, index, ctx, reason }: { track: CatalogT
     if (isCurrent) st.toggle();
     else st.playList(list, index, ctx);
   };
+  if (compact) {
+    return (
+      <button type="button" onClick={play} className="flex w-44 shrink-0 items-center gap-2 rounded-md bg-white/5 p-2 text-left hover:bg-white/10">
+        <Cover image={track.cover} className="h-10 w-10 shrink-0" />
+        <span className="min-w-0">
+          <span className={`block truncate text-sm font-semibold ${isCurrent ? "text-accent" : "text-white"}`}>{track.title}</span>
+          <span className="block truncate text-xs text-subdued">{track.artists.map((artist) => artist.name).join(", ")}</span>
+        </span>
+      </button>
+    );
+  }
   return (
     <div
       role="button"

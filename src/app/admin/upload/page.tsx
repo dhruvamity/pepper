@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
+import { useSWRConfig } from "swr";
 import { cleanMeta, TrackForm } from "@/components/admin/track-form";
 import { CheckCircleIcon, CloseIcon, EditIcon, UploadIcon } from "@/components/icons";
 import { addFiles, upload, uploadAllReady, useUploads, type UploadItem } from "@/lib/client/upload/queue";
@@ -25,7 +26,7 @@ function Pill({ children, tone = "plain" }: { children: React.ReactNode; tone?: 
   return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{children}</span>;
 }
 
-function Card({ it }: { it: UploadItem }) {
+function Card({ it, onUploaded }: { it: UploadItem; onUploaded: () => void }) {
   const [open, setOpen] = useState(false);
   const update = useUploads((s) => s.update);
   const remove = useUploads((s) => s.remove);
@@ -125,7 +126,7 @@ function Card({ it }: { it: UploadItem }) {
           </button>
         )}
         {["ready", "error"].includes(it.status) && it.sha256 && (
-          <button type="button" onClick={() => upload(it.id)} className="rounded-full bg-white px-4 py-1.5 text-xs font-bold text-black hover:scale-105">
+          <button type="button" onClick={() => upload(it.id, onUploaded)} className="rounded-full bg-white px-4 py-1.5 text-xs font-bold text-black hover:scale-105">
             {it.status === "error" ? "Retry" : "Upload"}
           </button>
         )}
@@ -141,6 +142,11 @@ function Card({ it }: { it: UploadItem }) {
 }
 
 export default function UploadPage() {
+  const { mutate } = useSWRConfig();
+  const onUploaded = () => {
+    void mutate("/api/catalog");
+    void mutate("/api/home");
+  };
   const items = useUploads((s) => s.items);
   const autoUpload = useUploads((s) => s.autoUpload);
   const enrichLyrics = useUploads((s) => s.enrichLyrics);
@@ -153,7 +159,7 @@ export default function UploadPage() {
   const counts = items.reduce<Record<string, number>>((a, i) => ((a[i.status] = (a[i.status] ?? 0) + 1), a), {});
   const take = (files: FileList | File[] | null) => {
     if (!files?.length) return;
-    const r = addFiles(files);
+    const r = addFiles(files, onUploaded);
     if (!r.audio) toast("No audio files found in that selection", "error");
   };
 
@@ -237,7 +243,7 @@ export default function UploadPage() {
             </div>
             <div className="flex gap-2">
               {counts.ready ? (
-                <button type="button" onClick={uploadAllReady} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-black hover:scale-105">
+                <button type="button" onClick={() => uploadAllReady(onUploaded)} className="rounded-full bg-white px-4 py-2 text-sm font-bold text-black hover:scale-105">
                   Upload {counts.ready} ready
                 </button>
               ) : null}
@@ -250,7 +256,7 @@ export default function UploadPage() {
           </div>
           <ul className="mt-3 grid gap-3 lg:grid-cols-2">
             {items.map((it) => (
-              <Card key={it.id} it={it} />
+              <Card key={it.id} it={it} onUploaded={onUploaded} />
             ))}
           </ul>
         </>

@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { mutate } from "swr";
+import { useSWRConfig } from "swr";
 import { TrackForm, cleanMeta, type EditableMeta } from "@/components/admin/track-form";
 import { EditIcon, TrashIcon } from "@/components/icons";
 import { Cover } from "@/components/ui/cover";
@@ -17,6 +17,7 @@ import { fold, formatDuration, providerName } from "@/lib/util";
 
 /** Songs without genre/language details yet (e.g. uploaded before autoplay used them). */
 function EnrichBanner({ missing }: { missing: number }) {
+  const { mutate } = useSWRConfig();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   if (!missing && !busy) return null;
@@ -88,6 +89,7 @@ function lyricsToText(l: Lyrics | null): string {
 }
 
 function Editor({ id, onClose }: { id: string; onClose: () => void }) {
+  const { mutate } = useSWRConfig();
   const [track, setTrack] = useState<Track | null>(null);
   const [meta, setMeta] = useState<EditableMeta | null>(null);
   const [lyrics, setLyrics] = useState("");
@@ -225,6 +227,7 @@ function Editor({ id, onClose }: { id: string; onClose: () => void }) {
 }
 
 function LibraryInner() {
+  const { mutate } = useSWRConfig();
   const { catalog } = useCatalog();
   const { data: pop } = usePopularity();
   const params = useSearchParams();

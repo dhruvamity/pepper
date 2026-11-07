@@ -1,3 +1,4 @@
+import type { JamDocument } from "@/lib/jam";
 import type { PlayUpdate } from "@/lib/analytics/score";
 import type {
   ArtistInfo,
@@ -56,7 +57,13 @@ export interface Repo {
   listPlaylists(uid: string): Promise<Playlist[]>;
   getPlaylist(id: string): Promise<Playlist | null>;
   savePlaylist(p: Playlist): Promise<void>;
-  deletePlaylist(id: string): Promise<void>;
+  deletePlaylist(id: string, shared?: boolean): Promise<void>;
+
+  // Live listening rooms
+  getJam(id: string): Promise<JamDocument | null>;
+  createJam(jam: JamDocument): Promise<void>;
+  updateJam(id: string, change: (jam: JamDocument | null) => JamDocument): Promise<JamDocument>;
+  watchJam(id: string, emit: (jam: JamDocument | null) => void, fail: (error: Error) => void): () => void;
 
   // Analytics
   recordPlay(event: PlayEvent, update: PlayUpdate): Promise<void>;

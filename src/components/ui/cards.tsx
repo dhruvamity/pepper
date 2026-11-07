@@ -57,50 +57,6 @@ export function MediaCard({
   );
 }
 
-/** Compact tile used in the 2-column "Good evening" grid. */
-export function ShortcutTile({
-  href,
-  title,
-  image,
-  images,
-  gradient,
-  playing,
-  onPlay,
-}: {
-  href: string;
-  title: string;
-  image?: ImageSet;
-  images?: (ImageSet | undefined)[];
-  gradient?: string;
-  playing?: boolean;
-  onPlay?: () => void;
-}) {
-  return (
-    <Link
-      href={href}
-      className="group relative flex h-14 items-center gap-2 overflow-hidden rounded-[4px] bg-white/10 pr-2 transition-colors hover:bg-white/20 sm:h-16 sm:gap-4 sm:rounded-md"
-    >
-      {gradient ? (
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center sm:h-16 sm:w-16" style={{ background: gradient }}>
-          <svg viewBox="0 0 24 24" className="h-6 w-6 fill-white" aria-hidden="true">
-            <path d="M15.724 4.22A4.313 4.313 0 0 0 12.192.814a4.269 4.269 0 0 0-3.622 1.13.837.837 0 0 1-1.14 0 4.272 4.272 0 0 0-6.21 5.855l5.916 7.05a1.128 1.128 0 0 0 1.727 0l5.916-7.05a4.228 4.228 0 0 0 .945-3.58z" transform="translate(4 4.5)" />
-          </svg>
-        </div>
-      ) : images ? (
-        <Collage images={images} className="h-14 w-14 shrink-0 shadow-[0_8px_24px_rgb(0_0_0/0.5)] sm:h-16 sm:w-16" rounded="" />
-      ) : (
-        <Cover image={image} className="h-14 w-14 shrink-0 shadow-[0_8px_24px_rgb(0_0_0/0.5)] sm:h-16 sm:w-16" rounded="" />
-      )}
-      <span className={`line-clamp-2 flex-1 text-[13px] font-bold leading-tight sm:text-base ${playing ? "text-accent" : "text-white"}`}>{title}</span>
-      {onPlay && (
-        <div className={`hidden pr-2 transition-opacity sm:block ${playing ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-          <PlayButton playing={playing} onClick={onPlay} size={40} />
-        </div>
-      )}
-    </Link>
-  );
-}
-
 /** Section with title + "Show all"; horizontal scroller on phones, grid on larger screens. */
 export function Section({
   title,
@@ -108,15 +64,17 @@ export function Section({
   href,
   children,
   grid = true,
+  rail = false,
 }: {
   title: React.ReactNode;
   subtitle?: string;
   href?: string;
   children: React.ReactNode;
   grid?: boolean;
+  rail?: boolean;
 }) {
   return (
-    <section className="mt-6 sm:mt-8">
+    <section className={rail ? "mt-5" : "mt-6 sm:mt-8"}>
       <div className="mb-3 flex items-end justify-between gap-4 px-4 sm:mb-4 sm:px-6">
         <div className="min-w-0">
           <h2 className="truncate text-[22px] font-bold leading-tight tracking-tight text-white sm:text-2xl">
@@ -136,7 +94,11 @@ export function Section({
           </Link>
         )}
       </div>
-      {grid ? (
+      {rail ? (
+        <div className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-1 sm:px-6 sm:[&>*]:w-[150px]">
+          {children}
+        </div>
+      ) : grid ? (
         <div className="no-scrollbar flex gap-4 overflow-x-auto px-4 pb-1 sm:grid sm:grid-cols-[repeat(auto-fill,minmax(170px,1fr))] sm:gap-6 sm:overflow-visible sm:px-6 [&>*:nth-child(n+13)]:sm:hidden">
           {children}
         </div>

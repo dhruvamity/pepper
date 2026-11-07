@@ -9,7 +9,7 @@ import { Collage, Cover } from "@/components/ui/cover";
 import { AlbumCard, ArtistCard, LikedArt, PlaylistCard } from "@/components/ui/media";
 import { PlayButton } from "@/components/ui/play-button";
 import { artistImage, useCatalog } from "@/lib/client/catalog";
-import { createPlaylist, useMe } from "@/lib/client/me";
+import { useMe, usePlaylistActions } from "@/lib/client/me";
 import { useCollectionPlayback } from "@/lib/client/player/hooks";
 import { usePlayer } from "@/lib/client/player/store";
 import { useUI } from "@/lib/client/ui";
@@ -49,6 +49,7 @@ function Row({ item }: { item: Item }) {
 }
 
 export default function LibraryPage() {
+  const { createPlaylist } = usePlaylistActions();
   const { data: me } = useMe();
   const { catalog } = useCatalog();
   const router = useRouter();

@@ -1,6 +1,6 @@
 /** Home feed and Daily Mix generation on top of the recommender. */
 import { decayed, TREND_HALF_LIFE } from "../analytics/score";
-import type { HomeSection, MixSummary, Playlist, Shortcut } from "../types";
+import type { HomeSection, MixSummary, Playlist } from "../types";
 import { genreKey, uniqueBy } from "../util";
 import { buildIndex, buildProfile, recommend, trending, type RecData } from "./engine";
 import { genreTokens, weightedJaccard, type TokenWeights } from "./similarity";
@@ -118,8 +118,6 @@ export function genreMixes(data: Pick<RecData, "tracks" | "stats" | "now">, max 
 export interface HomeInput {
   data: RecData;
   userName: string;
-  playlists: Playlist[];
-  savedAlbums: Record<string, number>;
   /** Shared playlists the listener saved. */
   savedPlaylists?: Record<string, number>;
 }
@@ -138,7 +136,7 @@ export function rankSharedPlaylists(data: RecData, profile: ReturnType<typeof bu
   return [...lists].sort((a, b) => score(b) - score(a) || b.trackIds.length - a.trackIds.length);
 }
 
-export function buildHome({ data, userName, playlists, savedPlaylists }: HomeInput): HomeSection[] {
+export function buildHome({ data, userName, savedPlaylists }: HomeInput): HomeSection[] {
   const idx = buildIndex(data.tracks, data.artists, data.playlists);
   const sections: HomeSection[] = [];
   const mixes = buildMixes(data, 4);
@@ -149,24 +147,7 @@ export function buildHome({ data, userName, playlists, savedPlaylists }: HomeInp
     .sort((a, b) => b[1] - a[1])
     .map(([id]) => id);
 
-  // Shortcuts grid (Spotify's "Good evening" tiles)
-  const shortcuts: Shortcut[] = [];
-  if (Object.keys(data.likes).length) shortcuts.push({ type: "liked", id: "liked" });
-  for (const id of uniqueBy(recent.map((t) => idx.byId.get(t)!.album.id), (x) => x).slice(0, 4)) shortcuts.push({ type: "album", id });
-  for (const m of mixes.slice(0, 2)) shortcuts.push({ type: "mix", id: m.id });
-  for (const p of playlists.slice(0, 3)) shortcuts.push({ type: "playlist", id: p.id });
   const shared = rankSharedPlaylists(data, buildProfile(data, idx), savedPlaylists);
-  for (const p of shared.filter((x) => savedPlaylists?.[x.id]).slice(0, 2)) shortcuts.push({ type: "playlist", id: p.id });
-  if (shortcuts.length < 6) {
-    const recentArtists = uniqueBy(recent.flatMap((t) => idx.byId.get(t)!.artists.map((a) => a.id)), (x) => x);
-    for (const id of recentArtists.slice(0, 6 - shortcuts.length)) shortcuts.push({ type: "artist", id });
-  }
-  if (shortcuts.length < 4) {
-    for (const id of uniqueBy(trending(data, 30).map((t) => idx.byId.get(t)!.album.id), (x) => x).slice(0, 6 - shortcuts.length)) {
-      if (!shortcuts.some((s) => s.type === "album" && s.id === id)) shortcuts.push({ type: "album", id });
-    }
-  }
-  if (shortcuts.length) sections.push({ id: "shortcuts", title: "", kind: "shortcuts", items: shortcuts.slice(0, 8) });
 
   if (mixes.length) {
     sections.push({ id: "mixes", title: `Made for ${userName.split(" ")[0]}`, kind: "mixes", items: mixes });

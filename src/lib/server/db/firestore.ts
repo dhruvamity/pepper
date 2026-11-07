@@ -8,7 +8,9 @@
  *  - Analytics use increment-only writes (see analytics/score.ts) — one batched commit per play.
  *  - Clients never talk to Firestore directly (rules deny everything); the server uses the Admin SDK.
  */
+import { getAuth } from "firebase-admin/auth";
 import { FieldPath, FieldValue, getFirestore, type Firestore, type QuerySnapshot } from "firebase-admin/firestore";
+import type { JamDocument } from "@/lib/jam";
 import type { PlayUpdate } from "@/lib/analytics/score";
 import type {
   ArtistInfo,
@@ -27,6 +29,7 @@ import type {
   UserTaste,
 } from "@/lib/types";
 import { dayKey, fnv1a } from "@/lib/util";
+import { config } from "../env";
 import { firebaseAdminApp } from "../firebase-admin";
 import { emptyDaily, emptyLibrary, emptyStats, emptyTaste, toCatalogTrack, type ImportBatch, type LibraryKind, type Repo } from "./types";
 
@@ -113,7 +116,7 @@ export class FirestoreRepo implements Repo {
       return c.snapshot;
     }
     const refs = [...Array.from({ length: SHARDS }, (_, i) => this.shard(i)), this.lists()];
-    const docs = await this.db.getAll(...refs);
+    const [docs, legacy] = await Promise.all([this.db.getAll(...refs), this.legacyAdminPlaylists()]);
     const tracks: CatalogTrack[] = [];
     const artists: Record<string, ArtistInfo> = {};
     for (const d of docs.slice(0, SHARDS)) {
@@ -123,9 +126,12 @@ export class FirestoreRepo implements Repo {
       for (const [id, json] of Object.entries(a)) artists[id] = JSON.parse(json);
     }
     const lists = (docs[SHARDS].get("p") ?? {}) as Record<string, string>;
-    const playlists = Object.values(lists)
-      .map((json) => JSON.parse(json) as Playlist)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    const playlistsById = new Map(legacy.map((p) => [p.id, p]));
+    for (const value of Object.values(lists)) {
+      const p = JSON.parse(value) as Playlist;
+      playlistsById.set(p.id, p);
+    }
+    const playlists = [...playlistsById.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     const snapshot = { version, tracks, artists, playlists };
     if (current()) {
       // Another server changed the catalog: its track docs may have changed too.
@@ -133,6 +139,26 @@ export class FirestoreRepo implements Repo {
       this.cache.catalog = { version, snapshot, checkedAt: now };
     }
     return snapshot;
+  }
+
+  /** Older app-created admin playlists did not have the shared flag. */
+  private async legacyAdminPlaylists(): Promise<Playlist[]> {
+    if (config.auth !== "firebase" || !config.adminEmails.length) return [];
+    const auth = getAuth(firebaseAdminApp());
+    const owners: string[] = [];
+    for (let i = 0; i < config.adminEmails.length; i += 100) {
+      const { users } = await auth.getUsers(config.adminEmails.slice(i, i + 100).map((email) => ({ email })));
+      owners.push(...users.filter((u) => u.emailVerified && !u.disabled).map((u) => u.uid));
+    }
+    const playlists: Playlist[] = [];
+    for (let i = 0; i < owners.length; i += 30) {
+      const q = await this.db.collection("playlists").where("ownerUid", "in", owners.slice(i, i + 30)).get();
+      for (const doc of q.docs) {
+        const p = doc.data() as Playlist;
+        if (p.shared == null) playlists.push({ ...p, shared: true });
+      }
+    }
+    return playlists;
   }
 
   private invalidateCatalog() {
@@ -147,7 +173,7 @@ export class FirestoreRepo implements Repo {
     if (hit && Date.now() - hit.at < TRACK_TTL_MS) return hit.track ? structuredClone(hit.track) : null;
     const s = await this.db.collection("tracks").doc(id).get();
     const track = s.exists ? (s.data() as Track) : null;
-    cache.set(id, { at: Date.now(), track });
+    if (track) cache.set(id, { at: Date.now(), track });
     if (cache.size > 4000) for (const k of [...cache.keys()].slice(0, cache.size - 4000)) cache.delete(k);
     return track ? structuredClone(track) : null;
   }
@@ -319,10 +345,10 @@ export class FirestoreRepo implements Repo {
     await batch.commit();
     this.invalidateCatalog();
   }
-  async deletePlaylist(id: string) {
+  async deletePlaylist(id: string, shared?: boolean) {
     const ref = this.db.collection("playlists").doc(id);
     const cur = await ref.get();
-    if (!cur.get("shared")) {
+    if (!shared && !cur.get("shared")) {
       await ref.delete();
       return;
     }
@@ -332,6 +358,35 @@ export class FirestoreRepo implements Repo {
     batch.set(this.meta(), { version: FieldValue.increment(1) }, { merge: true });
     await batch.commit();
     this.invalidateCatalog();
+  }
+
+  private jam(id: string) {
+    return this.db.collection("jams").doc(id);
+  }
+
+  async getJam(id: string) {
+    return ((await this.jam(id).get()).data() as JamDocument | undefined) ?? null;
+  }
+
+  async createJam(jam: JamDocument) {
+    await this.jam(jam.id).create(jam);
+  }
+
+  async updateJam(id: string, change: (jam: JamDocument | null) => JamDocument) {
+    const ref = this.jam(id);
+    return this.db.runTransaction(async (tx) => {
+      const previous = ((await tx.get(ref)).data() as JamDocument | undefined) ?? null;
+      const next = change(previous);
+      if (next !== previous) {
+        if (next.closed) tx.delete(ref);
+        else tx.set(ref, next);
+      }
+      return next;
+    });
+  }
+
+  watchJam(id: string, emit: (jam: JamDocument | null) => void, fail: (error: Error) => void) {
+    return this.jam(id).onSnapshot((snap) => emit((snap.data() as JamDocument | undefined) ?? null), fail);
   }
 
   // ---------------------------------------------------------------- analytics

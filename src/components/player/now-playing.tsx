@@ -1,5 +1,7 @@
 "use client";
 
+import { Users } from "lucide-react";
+import { setJamOpen, useJam } from "@/lib/client/jam";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -34,6 +36,7 @@ const CONTEXT_LABEL: Record<string, string> = {
 };
 
 export function NowPlaying() {
+  const jam = useJam((s) => s.room);
   const view = usePlayer((s) => s.view);
   const id = usePlayer((s) => s.currentId);
   const context = usePlayer((s) => s.context);
@@ -122,6 +125,9 @@ export function NowPlaying() {
             <div className="mt-4 flex items-center justify-between text-white/80">
               <button type="button" aria-label="Share" onClick={() => shareLink(`/track/${t.id}`, t.title)} className="flex h-10 w-10 items-center justify-center hover:text-white">
                 <ShareIcon size={20} />
+              </button>
+              <button type="button" aria-label="Jam" onClick={() => setJamOpen(true)} className={`flex h-10 w-10 items-center justify-center hover:text-white ${jam ? "text-accent" : ""}`}>
+                <Users size={20} />
               </button>
               <button type="button" aria-label="Queue" onClick={() => usePlayer.getState().setView("queue")} className="flex h-10 w-10 items-center justify-center hover:text-white">
                 <QueueIcon size={22} />

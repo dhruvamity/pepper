@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { Users } from "lucide-react";
+import { useRef } from "react";
 import { useCatalog } from "@/lib/client/catalog";
+import { setJamOpen, setSharedJamVolume, useJam } from "@/lib/client/jam";
 import { useLibraryActions } from "@/lib/client/me";
 import { usePlayer } from "@/lib/client/player/store";
 import { HeartIcon, LyricsIcon, QueueIcon, VolumeIcon } from "../icons";
@@ -18,8 +21,17 @@ export function PlayerBar() {
   const volume = usePlayer((s) => s.volume);
   const muted = usePlayer((s) => s.muted);
   const { isLiked, toggleLike } = useLibraryActions();
+  const jam = useJam((s) => s.room);
+  const isHost = useJam((s) => Boolean(s.room && s.room.hostUid === s.uid));
+  const lastAudibleVolume = useRef(1);
   const t = id ? catalog?.byId.get(id) : undefined;
   const st = usePlayer.getState;
+  const setVolume = (next: number) => {
+    if (next > 0) lastAudibleVolume.current = next;
+    else if (volume > 0) lastAudibleVolume.current = volume;
+    st().setVolume(next);
+    if (isHost) setSharedJamVolume(next);
+  };
 
   return (
     <div className="hidden h-[var(--player-bar-h)] grid-cols-[minmax(180px,1fr)_minmax(320px,2fr)_minmax(180px,1fr)] items-center gap-4 bg-black px-4 md:grid">
@@ -48,13 +60,14 @@ export function PlayerBar() {
         <SeekBar compact />
       </div>
       <div className="flex items-center justify-end gap-3">
+        <IconButton label="Jam" active={Boolean(jam)} onClick={() => setJamOpen(true)}><Users size={18} /></IconButton>
         <IconButton label="Lyrics & now playing" active={view === "now"} onClick={() => st().setView(view === "now" ? "none" : "now")} disabled={!t}>
           <LyricsIcon size={16} />
         </IconButton>
         <IconButton label="Queue" active={view === "queue"} onClick={() => st().setView(view === "queue" ? "none" : "queue")}>
           <QueueIcon size={16} />
         </IconButton>
-        <IconButton label={muted ? "Unmute" : "Mute"} onClick={() => st().toggleMute()}>
+        <IconButton label={muted ? "Unmute" : "Mute"} onClick={() => isHost ? setVolume(muted ? lastAudibleVolume.current : 0) : st().toggleMute()}>
           <VolumeIcon size={16} level={muted ? 0 : volume} />
         </IconButton>
         <input
@@ -64,10 +77,7 @@ export function PlayerBar() {
           max={1}
           step={0.01}
           value={muted ? 0 : volume}
-          onChange={(e) => {
-            st().setVolume(Number(e.target.value));
-            if (muted) usePlayer.setState({ muted: false });
-          }}
+          onChange={(e) => setVolume(e.target.valueAsNumber)}
           className="range w-24"
           style={{ "--pct": `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties}
         />

@@ -198,6 +198,7 @@ export type PlaySourceType =
   | "radio"
   | "autoplay"
   | "queue"
+  | "jam"
   | "genre"
   | "track"
   | "other";

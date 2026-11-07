@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useMe, createPlaylist } from "@/lib/client/me";
+import { useMe, usePlaylistActions } from "@/lib/client/me";
 import { usePlayer } from "@/lib/client/player/store";
 import { ChartIcon, Equalizer, HomeIcon, LibraryIcon, Logo, PlusIcon, SearchIcon, UploadIcon } from "../icons";
 
@@ -16,6 +16,7 @@ function NavLink({ href, icon, label, active }: { href: string; icon: React.Reac
 }
 
 export function Sidebar() {
+  const { createPlaylist } = usePlaylistActions();
   const path = usePathname();
   const router = useRouter();
   const { data: me } = useMe();

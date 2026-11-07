@@ -8,10 +8,10 @@ export async function repo(): Promise<Repo> {
   if (g.__pepperRepo) return g.__pepperRepo;
   if (config.db === "firestore") {
     const { FirestoreRepo } = await import("./firestore");
-    g.__pepperRepo = new FirestoreRepo();
+    g.__pepperRepo ??= new FirestoreRepo();
   } else {
     const { LocalRepo } = await import("./local");
-    g.__pepperRepo = new LocalRepo();
+    g.__pepperRepo ??= new LocalRepo();
   }
   return g.__pepperRepo;
 }

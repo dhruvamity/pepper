@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { mutate } from "swr";
+import { useSWRConfig } from "swr";
 import { CheckCircleIcon, SearchIcon } from "@/components/icons";
 import { Cover } from "@/components/ui/cover";
 import { api } from "@/lib/client/api";
@@ -12,6 +12,7 @@ import { fold } from "@/lib/util";
 
 /** Cold start: pick a few artists so the very first home feed is already personal. */
 export default function OnboardingPage() {
+  const { mutate } = useSWRConfig();
   const { catalog } = useCatalog();
   const router = useRouter();
   const [picked, setPicked] = useState<string[]>([]);

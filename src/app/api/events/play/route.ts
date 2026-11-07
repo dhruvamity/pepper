@@ -13,7 +13,7 @@ const report = z.object({
   durationMs: z.number().positive().max(6 * 3600 * 1000),
   endReason: z.enum(["ended", "skip", "prev", "switch", "pause", "unload"]),
   source: z.object({
-    type: z.enum(["album", "artist", "playlist", "liked", "search", "home", "mix", "radio", "autoplay", "queue", "genre", "track", "other"]),
+    type: z.enum(["album", "artist", "playlist", "liked", "search", "home", "mix", "radio", "autoplay", "queue", "jam", "genre", "track", "other"]),
     id: z.string().max(120).optional(),
   }),
   prevTrackId: z.string().max(40).optional(),

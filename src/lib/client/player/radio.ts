@@ -9,7 +9,6 @@ export async function startRadio(seedId: string, title: string) {
   try {
     const { items } = await api<{ items: { id: string }[] }>(`/api/radio?mode=radio&limit=40&seeds=${seedId}`);
     usePlayer.getState().playList([seedId, ...items.map((i) => i.id)], 0, { type: "radio", id: seedId, name: `${title} Radio`, href: `/track/${seedId}` }, { shuffle: false });
-    usePlayer.setState({ shuffle: false });
   } catch (e) {
     toast((e as Error).message, "error");
   }

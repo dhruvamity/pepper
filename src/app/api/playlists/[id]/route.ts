@@ -17,7 +17,8 @@ async function load(req: Request, ctx: Ctx, mustOwn: boolean) {
   const u = await requireUser(req);
   const { id } = await ctx.params;
   const db = await repo();
-  const p = await db.getPlaylist(id);
+  const stored = await db.getPlaylist(id);
+  const p = stored && (stored.shared ? stored : (await db.getCatalog()).playlists?.find((list) => list.id === id) ?? stored);
   if (!p) throw new HttpError(404, "Playlist not found");
   // Shared playlists belong to everyone: admins look after them.
   if (mustOwn && p.ownerUid !== u.uid && !(p.shared && u.isAdmin)) throw new HttpError(403, "Only the owner can change this playlist");
@@ -42,6 +43,6 @@ export const PATCH = route<Ctx>(async (req, ctx) => {
 
 export const DELETE = route<Ctx>(async (req, ctx) => {
   const { db, p } = await load(req, ctx, true);
-  await db.deletePlaylist(p.id);
+  await db.deletePlaylist(p.id, p.shared);
   return json({ ok: true });
 });

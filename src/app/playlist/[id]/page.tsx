@@ -1,5 +1,6 @@
 "use client";
 
+import { Users } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
@@ -10,16 +11,19 @@ import { Sheet, SheetItem } from "@/components/ui/sheet";
 import { TrackRow } from "@/components/ui/track-row";
 import { fetcher } from "@/lib/client/api";
 import { useCatalog } from "@/lib/client/catalog";
-import { deletePlaylist, updatePlaylist, useLibraryActions, useMe } from "@/lib/client/me";
+import { setJamOpen, startListeningJam, useJam } from "@/lib/client/jam";
+import { useLibraryActions, useMe, usePlaylistActions } from "@/lib/client/me";
 import { toast } from "@/lib/client/toast";
 import type { Playlist } from "@/lib/types";
 import { formatLongDuration } from "@/lib/util";
 
 export default function PlaylistPage() {
+  const { deletePlaylist, updatePlaylist } = usePlaylistActions();
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { data: me } = useMe();
   const { catalog } = useCatalog();
+  const jam = useJam((s) => s.room);
   const { data, error } = useSWR<{ playlist: Playlist }>(`/api/playlists/${id}`, fetcher);
   const { isPlaylistSaved, toggleSavePlaylist } = useLibraryActions();
   // Shared playlists come with the catalog, so they open instantly.
@@ -80,6 +84,16 @@ export default function PlaylistPage() {
               >
                 <HeartIcon filled={isPlaylistSaved(p.id)} size={32} />
               </button>
+            )}
+            {tracks.length > 0 && (
+              <button
+                type="button" aria-label={jam ? "Open Jam" : "Start a Jam"} title={jam ? "Open Jam" : "Start a Jam"}
+                className={jam ? "text-accent" : "text-subdued hover:text-white"}
+                onClick={() => {
+                  if (jam) setJamOpen(true);
+                  else void startListeningJam(tracks.map((track) => track.id)).catch((error: Error) => toast(error.message, "error"));
+                }}
+              ><Users size={27} /></button>
             )}
             {own && (
               <button type="button" aria-label="Playlist options" onClick={() => setMenu(true)} className="text-subdued hover:text-white">

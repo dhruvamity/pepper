@@ -1,12 +1,14 @@
 "use client";
 
+import { Users } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/client/api";
 import { useCatalog } from "@/lib/client/catalog";
-import { createPlaylist, updatePlaylist, useLibraryActions, useMe } from "@/lib/client/me";
+import { setJamOpen, startListeningJam, useJam } from "@/lib/client/jam";
+import { useLibraryActions, useMe, usePlaylistActions } from "@/lib/client/me";
 import { shareLink, startRadio } from "@/lib/client/player/radio";
 import { usePlayer } from "@/lib/client/player/store";
 import { toast, useToasts } from "@/lib/client/toast";
@@ -32,7 +34,9 @@ import { Cover } from "./cover";
 import { Sheet, SheetItem } from "./sheet";
 
 export function TrackMenuSheet() {
+  const { updatePlaylist } = usePlaylistActions();
   const menu = useUI((s) => s.trackMenu);
+  const jam = useJam((s) => s.room);
   const close = useUI((s) => s.closeTrackMenu);
   const openAdd = useUI((s) => s.openAddToPlaylist);
   const openCredits = useUI((s) => s.openCredits);
@@ -87,17 +91,24 @@ export function TrackMenuSheet() {
           icon={<QueueIcon />}
           onClick={() => {
             usePlayer.getState().addToQueue([t.id]);
-            toast("Added to queue");
+            if (!jam) toast("Added to queue");
             close();
           }}
         >
-          Add to queue
+          {jam ? "Add to Jam queue" : "Add to queue"}
         </SheetItem>
+        {!jam && (
+          <SheetItem icon={<Users size={20} />} onClick={() => {
+            close();
+            void startListeningJam([t.id]).catch((error: Error) => toast(error.message, "error"));
+          }}>Start a Jam</SheetItem>
+        )}
+        {jam && <SheetItem icon={<Users size={20} />} onClick={() => { close(); setJamOpen(true); }}>Open Jam</SheetItem>}
         <SheetItem
           icon={<PlusIcon />}
           onClick={() => {
             usePlayer.getState().playNext([t.id]);
-            toast("Playing next");
+            if (!jam) toast("Playing next");
             close();
           }}
         >
@@ -146,6 +157,7 @@ export function TrackMenuSheet() {
 }
 
 export function AddToPlaylistSheet() {
+  const { createPlaylist, updatePlaylist } = usePlaylistActions();
   const ids = useUI((s) => s.addToPlaylist);
   const close = useUI((s) => s.closeAddToPlaylist);
   const { data: me } = useMe();

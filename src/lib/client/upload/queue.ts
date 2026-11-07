@@ -5,7 +5,6 @@
  * other pages. Pipeline per file:
  *   read tags → cover art → hash + audio analysis → presign → PUT to R2/B2 → create track.
  */
-import { mutate } from "swr";
 import { create } from "zustand";
 import { cleanMeta, type EditableMeta } from "@/components/admin/track-form";
 import { AUDIO_EXTENSIONS, audioMimeFor, type TrackDraft } from "@/lib/metadata/normalize";
@@ -76,7 +75,7 @@ async function withSlot<T>(slots: typeof analysisSlots, fn: () => Promise<T>): P
   }
 }
 
-export function addFiles(list: FileList | File[]) {
+export function addFiles(list: FileList | File[], onUploaded: () => void) {
   const files = [...list];
   const audio = files.filter((f) => AUDIO_EXTENSIONS.includes(ext(f.name)) || f.type.startsWith("audio/"));
   const lrc = new Map(files.filter((f) => ext(f.name) === "lrc").map((f) => [base(f.name), f]));
@@ -97,12 +96,12 @@ export function addFiles(list: FileList | File[]) {
   for (const it of items) {
     const sideLrc = lrc.get(base(it.file.name));
     const sideImg = imageByBase.get(base(it.file.name)) ?? folderArt.get(dir(it.file)) ?? looseArt;
-    void prepare(it.id, sideLrc, sideImg);
+    void prepare(it.id, sideLrc, sideImg, onUploaded);
   }
   return { audio: audio.length, ignored: files.length - audio.length - lrc.size - images.length };
 }
 
-async function prepare(id: string, sideLrc?: File, sideImg?: File) {
+async function prepare(id: string, sideLrc: File | undefined, sideImg: File | undefined, onUploaded: () => void) {
   const q = useUploads.getState();
   const item = q.items.find((i) => i.id === id);
   if (!item) return;
@@ -130,7 +129,7 @@ async function prepare(id: string, sideLrc?: File, sideImg?: File) {
       ]);
       if (!features) warnings.push("Audio analysis skipped — recommendations will rely on tags and listening data.");
       useUploads.getState().update(id, { status: "ready", sha256, features, warnings });
-      if (useUploads.getState().autoUpload) void upload(id);
+      if (useUploads.getState().autoUpload) void upload(id, onUploaded);
     } catch (err) {
       useUploads.getState().update(id, { status: "error", error: `Couldn't read this file: ${(err as Error).message}` });
     }
@@ -146,7 +145,7 @@ interface InitResponse {
   cover?: Record<"sm" | "lg", { provider: ProviderId; key: string; contentType: string; upload: { url: string; method: string; headers: Record<string, string> } | null }>;
 }
 
-export async function upload(id: string) {
+export async function upload(id: string, onUploaded: () => void) {
   const it0 = useUploads.getState().items.find((i) => i.id === id);
   if (!it0 || !["ready", "error"].includes(it0.status) || !it0.sha256 || !it0.meta || !it0.draft) return;
   await withSlot(uploadSlots, async () => {
@@ -223,14 +222,13 @@ export async function upload(id: string) {
         },
       });
       upd({ status: "done", trackId: track.id });
-      void mutate("/api/catalog");
-      void mutate("/api/home");
+      onUploaded();
     } catch (err) {
       upd({ status: "error", error: (err as Error).message });
     }
   });
 }
 
-export function uploadAllReady() {
-  for (const i of useUploads.getState().items) if (i.status === "ready") void upload(i.id);
+export function uploadAllReady(onUploaded: () => void) {
+  for (const i of useUploads.getState().items) if (i.status === "ready") void upload(i.id, onUploaded);
 }

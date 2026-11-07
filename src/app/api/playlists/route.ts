@@ -27,6 +27,7 @@ export const POST = route(async (req) => {
     id: `pl_${randomUUID().replace(/-/g, "").slice(0, 16)}`,
     ownerUid: u.uid,
     ownerName: u.name,
+    ...(u.isAdmin ? { shared: true } : {}),
     name: input.name || `My Playlist #${existing.length + 1}`,
     description: input.description,
     trackIds: [...new Set(input.trackIds ?? [])],

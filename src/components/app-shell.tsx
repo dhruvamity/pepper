@@ -12,6 +12,7 @@ import { ProfileSheet } from "./nav/profile-sheet";
 import { ScrollCtx } from "./nav/scroll";
 import { Sidebar } from "./nav/sidebar";
 import { PlayerEngine } from "./player/engine";
+import { JamPanel } from "./player/jam-panel";
 import { MiniPlayer } from "./player/mini-player";
 import { NowPlaying } from "./player/now-playing";
 import { PlayerBar } from "./player/player-bar";
@@ -77,7 +78,7 @@ function SignedIn({ children, bare, path }: { children: React.ReactNode; bare: b
 
   // First visit: ask for favourite artists so recommendations are good from day one.
   useEffect(() => {
-    if (!me || !catalog || me.user.onboarded || path === "/onboarding" || path.startsWith("/admin")) return;
+    if (!me || !catalog || me.user.onboarded || path === "/onboarding" || path.startsWith("/admin") || path.startsWith("/jam/")) return;
     if (catalog.artists.size >= 3 && !sessionStorage.getItem("pepper.skipOnboarding")) router.replace("/onboarding");
   }, [me, catalog, path, router]);
 
@@ -119,6 +120,7 @@ function SignedIn({ children, bare, path }: { children: React.ReactNode; bare: b
       <ProfileSheet />
       <Toasts />
       <PlayerEngine />
+      <JamPanel />
     </div>
   );
 }

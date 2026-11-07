@@ -5,6 +5,7 @@
  */
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
+import type { JamDocument } from "@/lib/jam";
 import type { PlayUpdate } from "@/lib/analytics/score";
 import type {
   ArtistInfo,
@@ -72,6 +73,8 @@ export class LocalRepo implements Repo {
   private file: string;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private mtime = 0;
+  private jams = new Map<string, JamDocument>();
+  private jamListeners = new Map<string, Set<(jam: JamDocument | null) => void>>();
 
   constructor(dir = config.dataDir) {
     this.file = path.join(dir, "db.json");
@@ -119,6 +122,11 @@ export class LocalRepo implements Repo {
     this.state.catalogVersion = Math.max(Date.now(), this.state.catalogVersion + 1);
   }
 
+  private shared(p: Playlist) {
+    const email = this.state.users[p.ownerUid]?.email?.toLowerCase();
+    return p.shared || (config.allowDemoLogin && p.ownerUid.startsWith("demo-admin-")) || Boolean(email && config.adminEmails.includes(email));
+  }
+
   // ---------------------------------------------------------------- catalog
   async getCatalog(): Promise<CatalogSnapshot> {
     this.fresh();
@@ -127,7 +135,8 @@ export class LocalRepo implements Repo {
       tracks: Object.values(this.state.tracks).map(toCatalogTrack),
       artists: { ...this.state.artists },
       playlists: Object.values(this.state.playlists)
-        .filter((p) => p.shared)
+        .filter((p) => this.shared(p))
+        .map((p) => ({ ...p, shared: true }))
         .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
     };
   }
@@ -227,11 +236,45 @@ export class LocalRepo implements Repo {
     if (p.shared || wasShared) this.bump();
     this.persist(Boolean(p.shared || wasShared));
   }
-  async deletePlaylist(id: string) {
-    const wasShared = this.state.playlists[id]?.shared;
+  async deletePlaylist(id: string, shared?: boolean) {
+    const wasShared = shared || this.state.playlists[id]?.shared;
     delete this.state.playlists[id];
     if (wasShared) this.bump();
     this.persist(Boolean(wasShared));
+  }
+
+  async getJam(id: string) {
+    return this.jams.get(id) ?? null;
+  }
+
+  async createJam(jam: JamDocument) {
+    for (const [id, room] of this.jams) {
+      if (room.expiresAt <= Date.now() || room.closed) this.jams.delete(id);
+    }
+    this.jams.set(jam.id, jam);
+  }
+
+  async updateJam(id: string, change: (jam: JamDocument | null) => JamDocument) {
+    const previous = this.jams.get(id) ?? null;
+    const jam = change(previous);
+    if (jam !== previous) {
+      this.jams.set(id, jam);
+      for (const emit of this.jamListeners.get(id) ?? []) emit(jam);
+    }
+    return jam;
+  }
+
+  watchJam(id: string, emit: (jam: JamDocument | null) => void) {
+    const listeners = this.jamListeners.get(id) ?? new Set();
+    this.jamListeners.set(id, listeners);
+    listeners.add(emit);
+    queueMicrotask(() => {
+      if (listeners.has(emit)) emit(this.jams.get(id) ?? null);
+    });
+    return () => {
+      listeners.delete(emit);
+      if (!listeners.size) this.jamListeners.delete(id);
+    };
   }
 
   // ---------------------------------------------------------------- analytics

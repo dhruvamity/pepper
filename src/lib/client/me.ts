@@ -1,6 +1,6 @@
 "use client";
 
-import useSWR, { mutate as globalMutate } from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import type { Playlist, UserLibrary, UserProfile } from "@/lib/types";
 import { api, fetcher } from "./api";
 import { useAuth } from "./auth";
@@ -19,9 +19,10 @@ export function useMe() {
 }
 
 type Kind = keyof UserLibrary;
+type Mutate = ReturnType<typeof useSWRConfig>["mutate"];
 
-async function setItem(kind: Kind, id: string, on: boolean) {
-  await globalMutate<MeResponse>(
+async function setItem(mutate: Mutate, kind: Kind, id: string, on: boolean) {
+  await mutate<MeResponse>(
     "/api/me",
     async (cur) => {
       await api("/api/me/library", { method: "PUT", body: { kind, id, on } });
@@ -48,6 +49,7 @@ async function setItem(kind: Kind, id: string, on: boolean) {
 export function useLibraryActions() {
   const { data } = useMe();
   const lib = data?.library;
+  const { mutate } = useSWRConfig();
   return {
     isLiked: (id: string) => Boolean(lib?.likes[id]),
     isFollowing: (id: string) => Boolean(lib?.artists[id]),
@@ -56,9 +58,9 @@ export function useLibraryActions() {
     async toggleLike(id: string) {
       const on = !lib?.likes[id];
       try {
-        await setItem("likes", id, on);
+        await setItem(mutate, "likes", id, on);
         toast(on ? "Added to Liked Songs" : "Removed from Liked Songs");
-        globalMutate("/api/home");
+        mutate("/api/home");
       } catch (e) {
         toast((e as Error).message, "error");
       }
@@ -66,7 +68,7 @@ export function useLibraryActions() {
     async toggleFollow(id: string) {
       const on = !lib?.artists[id];
       try {
-        await setItem("artists", id, on);
+        await setItem(mutate, "artists", id, on);
         toast(on ? "Following" : "Unfollowed");
       } catch (e) {
         toast((e as Error).message, "error");
@@ -75,7 +77,7 @@ export function useLibraryActions() {
     async toggleSave(id: string) {
       const on = !lib?.albums[id];
       try {
-        await setItem("albums", id, on);
+        await setItem(mutate, "albums", id, on);
         toast(on ? "Saved to Your Library" : "Removed from Your Library");
       } catch (e) {
         toast((e as Error).message, "error");
@@ -84,7 +86,7 @@ export function useLibraryActions() {
     async toggleSavePlaylist(id: string) {
       const on = !lib?.playlists?.[id];
       try {
-        await setItem("playlists", id, on);
+        await setItem(mutate, "playlists", id, on);
         toast(on ? "Saved to Your Library" : "Removed from Your Library");
       } catch (e) {
         toast((e as Error).message, "error");
@@ -93,27 +95,34 @@ export function useLibraryActions() {
   };
 }
 
-export async function createPlaylist(input: { name?: string; trackIds?: string[] } = {}): Promise<Playlist> {
-  const { playlist } = await api<{ playlist: Playlist }>("/api/playlists", { body: input });
-  await globalMutate<MeResponse>("/api/me", (cur) => (cur ? { ...cur, playlists: [playlist, ...cur.playlists] } : cur), { revalidate: false });
-  return playlist;
-}
+export function usePlaylistActions() {
+  const { mutate } = useSWRConfig();
 
-export async function updatePlaylist(id: string, patch: { name?: string; description?: string; add?: string[]; remove?: string[]; trackIds?: string[] }) {
-  const { playlist } = await api<{ playlist: Playlist }>(`/api/playlists/${id}`, { method: "PATCH", body: patch });
-  await globalMutate<MeResponse>(
-    "/api/me",
-    (cur) => (cur ? { ...cur, playlists: cur.playlists.map((p) => (p.id === id ? playlist : p)) } : cur),
-    { revalidate: false },
-  );
-  await globalMutate(`/api/playlists/${id}`, { playlist }, { revalidate: false });
-  // Shared playlists also live in the catalog everyone downloads.
-  if (playlist.shared) await globalMutate("/api/catalog");
-  return playlist;
-}
+  async function createPlaylist(input: { name?: string; trackIds?: string[] } = {}): Promise<Playlist> {
+    const { playlist } = await api<{ playlist: Playlist }>("/api/playlists", { body: input });
+    await mutate<MeResponse>("/api/me", (cur) => (cur ? { ...cur, playlists: [playlist, ...cur.playlists] } : cur), { revalidate: false });
+    if (playlist.shared) await Promise.all([mutate("/api/catalog"), mutate("/api/home")]);
+    return playlist;
+  }
 
-export async function deletePlaylist(id: string) {
-  await api(`/api/playlists/${id}`, { method: "DELETE" });
-  await globalMutate<MeResponse>("/api/me", (cur) => (cur ? { ...cur, playlists: cur.playlists.filter((p) => p.id !== id) } : cur), { revalidate: false });
-  await globalMutate("/api/catalog");
+  async function updatePlaylist(id: string, patch: { name?: string; description?: string; add?: string[]; remove?: string[]; trackIds?: string[] }) {
+    const { playlist } = await api<{ playlist: Playlist }>(`/api/playlists/${id}`, { method: "PATCH", body: patch });
+    await mutate<MeResponse>(
+      "/api/me",
+      (cur) => (cur ? { ...cur, playlists: cur.playlists.map((p) => (p.id === id ? playlist : p)) } : cur),
+      { revalidate: false },
+    );
+    await mutate(`/api/playlists/${id}`, { playlist }, { revalidate: false });
+    // Shared playlists also live in the catalog everyone downloads.
+    if (playlist.shared) await Promise.all([mutate("/api/catalog"), mutate("/api/home")]);
+    return playlist;
+  }
+
+  async function deletePlaylist(id: string) {
+    await api(`/api/playlists/${id}`, { method: "DELETE" });
+    await mutate<MeResponse>("/api/me", (cur) => (cur ? { ...cur, playlists: cur.playlists.filter((p) => p.id !== id) } : cur), { revalidate: false });
+    await Promise.all([mutate("/api/catalog"), mutate("/api/home")]);
+  }
+
+  return { createPlaylist, updatePlaylist, deletePlaylist };
 }

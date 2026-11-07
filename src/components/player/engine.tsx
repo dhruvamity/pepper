@@ -9,6 +9,7 @@
 import { useEffect, useRef } from "react";
 import { api, getToken } from "@/lib/client/api";
 import { useCatalog } from "@/lib/client/catalog";
+import { blockJamAudio, inJam, jamAudioEnabled, jamPlaybackPosition, useJam } from "@/lib/client/jam";
 import { usePlayer } from "@/lib/client/player/store";
 import { toast } from "@/lib/client/toast";
 import type { CatalogTrack, PlayEndReason, PlayReport } from "@/lib/types";
@@ -68,13 +69,27 @@ function unlockAudio() {
   unlocked = true;
   if (audioEl.src) return;
   const a = audioEl;
-  a.src = silentWavUrl();
+  const silent = silentWavUrl();
+  a.src = silent;
   a.play().then(
-    () => a.pause(),
-    () => {
-      unlocked = false;
-    },
-  );
+    () => { if (a.src === silent) a.pause(); },
+    () => { unlocked = false; },
+  ).finally(() => URL.revokeObjectURL(silent));
+}
+
+/** Call from the user's click when a browser requires a direct audio gesture. */
+export function resumeJamAudio() {
+  const audio = audioEl;
+  if (!audio || !jamAudioEnabled()) return;
+  const player = usePlayer.getState();
+  if (!audio.src || audio.error) {
+    if (player.currentId) usePlayer.setState({ restartToken: player.restartToken + 1 });
+    return;
+  }
+  if (!player.playing || audio.src.startsWith("blob:")) return;
+  void audio.play().catch((error: DOMException) => {
+    if (error.name === "NotAllowedError" && inJam()) blockJamAudio();
+  });
 }
 
 function sourceOf(): PlayReport["source"] {
@@ -91,7 +106,7 @@ function reasonFor(action: string, play: ActivePlay): PlayEndReason {
 }
 
 export function PlayerEngine() {
-  const { catalog } = useCatalog();
+  const { catalog, refresh } = useCatalog();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const preloadRef = useRef<HTMLAudioElement | null>(null);
   const playRef = useRef<ActivePlay | null>(null);
@@ -231,12 +246,12 @@ export function PlayerEngine() {
     // The next song's audio itself is only preloaded from 60% on.
     if (posMs < (nextId ? durMs * 0.6 : Math.min(durMs * 0.6, 5000))) return;
     if (!nextId) {
-      if (s.autoplay && s.repeat === "off" && s.currentId && prefetchedFor.current !== s.currentId) {
+      if (!inJam() && s.autoplay && s.repeat === "off" && s.currentId && prefetchedFor.current !== s.currentId) {
         const after = s.currentId;
         prefetchedFor.current = after;
         fetchAutoplay(true)
           .then((ids) => {
-            if (usePlayer.getState().currentId === after && ids.length) usePlayer.setState({ prefetch: { after, ids } });
+            if (!inJam() && usePlayer.getState().currentId === after && ids.length) usePlayer.setState({ prefetch: { after, ids } });
           })
           .catch(() => {
             prefetchedFor.current = null;
@@ -279,7 +294,13 @@ export function PlayerEngine() {
 
     let lastTick = 0;
     let lastSave = 0;
+    const alignJam = () => {
+      const position = jamPlaybackPosition();
+      if (position === null || !audio.src || audio.src.startsWith("blob:") || !audio.readyState || audio.seeking) return;
+      if (Math.abs(audio.currentTime * 1000 - position) > 500) audio.currentTime = position / 1000;
+    };
     const onTime = () => {
+      if (!audio.src || audio.src.startsWith("blob:")) return;
       const t = audio.currentTime;
       const p = playRef.current;
       if (p && !audio.paused) {
@@ -304,6 +325,7 @@ export function PlayerEngine() {
         lastTick = now;
         const d = Number.isFinite(audio.duration) ? audio.duration * 1000 : undefined;
         usePlayer.getState().setProgress(t * 1000, d);
+        alignJam();
         if (d && "mediaSession" in navigator && navigator.mediaSession.setPositionState) {
           try {
             navigator.mediaSession.setPositionState({ duration: audio.duration, position: Math.min(t, audio.duration), playbackRate: audio.playbackRate });
@@ -318,8 +340,10 @@ export function PlayerEngine() {
       if (playRef.current) playRef.current.lastTime = audio.currentTime;
     };
     const onEnded = () => {
+      if (audio.src.startsWith("blob:")) return;
       finishCurrent("ended");
       const s = usePlayer.getState();
+      if (inJam()) return; // The room advances against the server clock.
       const repeatOne = s.repeat === "one" && s.currentId;
       s.ended();
       if (repeatOne) startPlay(s.currentId!);
@@ -328,31 +352,40 @@ export function PlayerEngine() {
     const onPlaying = () => usePlayer.getState().setBuffering(false);
     const onPause = () => {
       // OS-level pause (headphones unplugged, lock screen…)
-      if (usePlayer.getState().playing && !audio.ended && audio.src && !audio.src.startsWith("blob:")) usePlayer.getState().setPlaying(false);
+      if (!inJam() && usePlayer.getState().playing && !audio.ended && audio.src && !audio.src.startsWith("blob:")) usePlayer.getState().setPlaying(false);
     };
     const onPlay = () => {
-      if (!usePlayer.getState().playing && !audio.src.startsWith("blob:")) usePlayer.getState().setPlaying(true);
+      if (!inJam() && !usePlayer.getState().playing && !audio.src.startsWith("blob:")) usePlayer.getState().setPlaying(true);
     };
     let retried = "";
     const onError = async () => {
       const id = usePlayer.getState().currentId;
       if (!id || audio.src.startsWith("blob:") || !audio.src) return;
       if (retried === id) {
+        if (inJam()) {
+          blockJamAudio();
+          toast("This device couldn't load the Jam audio", "error");
+          return;
+        }
         toast("Couldn't play this song — skipping", "error");
         usePlayer.getState().next();
         return;
       }
       retried = id;
       const at = audio.currentTime;
+      const seq = loadSeq.current;
       try {
-        audio.src = await streamUrl(id, true);
+        const url = await streamUrl(id, true);
+        if (seq !== loadSeq.current) return;
+        audio.src = url;
         audio.currentTime = at;
-        if (usePlayer.getState().playing) await audio.play();
+        if (usePlayer.getState().playing && jamAudioEnabled()) await audio.play();
       } catch {
         toast("Playback error", "error");
       }
     };
     audio.addEventListener("timeupdate", onTime);
+    audio.addEventListener("loadedmetadata", alignJam);
     audio.addEventListener("seeked", onSeeked);
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("waiting", onWaiting);
@@ -370,7 +403,7 @@ export function PlayerEngine() {
 
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
-      if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return;
+      if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A"].includes(el.tagName))) return;
       const s = usePlayer.getState();
       if (e.code === "Space") {
         e.preventDefault();
@@ -403,6 +436,7 @@ export function PlayerEngine() {
     return () => {
       audio.pause();
       audio.removeEventListener("timeupdate", onTime);
+      audio.removeEventListener("loadedmetadata", alignJam);
       audio.removeEventListener("seeked", onSeeked);
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("waiting", onWaiting);
@@ -423,7 +457,12 @@ export function PlayerEngine() {
   const currentId = usePlayer((s) => s.currentId);
   const restartToken = usePlayer((s) => s.restartToken);
   const catalogReady = Boolean(catalog);
-  const firstLoad = useRef(true);
+  const currentAvailable = Boolean(currentId && catalog?.byId.has(currentId));
+  const loadedId = useRef<string | null>(null);
+  const listenHere = useJam((s) => !s.room || s.mode === "remote");
+  useEffect(() => {
+    if (catalogReady && currentId && !currentAvailable && inJam()) void refresh();
+  }, [catalogReady, currentId, currentAvailable, refresh]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -431,22 +470,26 @@ export function PlayerEngine() {
     const id = currentId;
     const seq = ++loadSeq.current;
     const s = usePlayer.getState();
+    loadedId.current = null;
 
     if (playRef.current && !playRef.current.reported) finishCurrent(reasonFor(s.lastAction, playRef.current));
-    if (!id) {
+    if (!id || inJam()) {
       audio.pause();
       audio.removeAttribute("src");
+      audio.load();
+    }
+    if (!id || !listenHere) {
       playRef.current = null;
+      usePlayer.getState().setBuffering(false);
       return;
     }
     const t = track(id);
     if (!t) {
       // Track was deleted from the catalog.
-      if (s.playing) s.next();
+      if (s.playing && !inJam()) s.next();
       return;
     }
-    const resumeAt = firstLoad.current ? s.position : 0;
-    firstLoad.current = false;
+    const resumeAt = s.position;
     startPlay(id);
     document.title = `${t.title} · ${t.artists.map((a) => a.name).join(", ")}`;
     if ("mediaSession" in navigator) {
@@ -463,13 +506,19 @@ export function PlayerEngine() {
       .then(async (url) => {
         if (seq !== loadSeq.current) return;
         audio.src = url;
-        if (resumeAt > 0) audio.currentTime = resumeAt / 1000;
-        if (playRef.current) playRef.current.lastTime = resumeAt / 1000;
-        if (usePlayer.getState().playing) {
+        loadedId.current = id;
+        const at = jamPlaybackPosition() ?? resumeAt;
+        if (at > 0) audio.currentTime = at / 1000;
+        if (playRef.current) playRef.current.lastTime = at / 1000;
+        if (usePlayer.getState().playing && jamAudioEnabled()) {
           try {
             await audio.play();
           } catch (err) {
-            if ((err as DOMException).name === "NotAllowedError") usePlayer.getState().setPlaying(false);
+            if (seq !== loadSeq.current) return;
+            if ((err as DOMException).name === "NotAllowedError") {
+              if (inJam()) blockJamAudio();
+              else usePlayer.getState().setPlaying(false);
+            }
           }
         } else usePlayer.getState().setBuffering(false);
       })
@@ -477,18 +526,21 @@ export function PlayerEngine() {
         if (seq !== loadSeq.current) return;
         usePlayer.getState().setBuffering(false);
         toast(`Can't stream this song: ${(err as Error).message}`, "error");
-        usePlayer.getState().setPlaying(false);
+        if (inJam()) blockJamAudio();
+        else usePlayer.getState().setPlaying(false);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentId, restartToken, catalogReady]);
+  }, [currentId, restartToken, catalogReady, currentAvailable, listenHere]);
 
   // ---------------------------------------------------------------- play / pause
   const playing = usePlayer((s) => s.playing);
+  const jamAudio = useJam((s) => !s.room || (s.mode === "remote" && !s.blocked));
+  const audible = playing && jamAudio;
   useEffect(() => {
     const audio = audioRef.current;
-    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = playing ? "playing" : "paused";
-    if (!audio || !audio.src || audio.src.startsWith("blob:")) return;
-    if (playing && audio.paused) {
+    if ("mediaSession" in navigator) navigator.mediaSession.playbackState = audible ? "playing" : "paused";
+    if (!audio || !audio.src || audio.src.startsWith("blob:") || (inJam() && loadedId.current !== usePlayer.getState().currentId)) return;
+    if (audible && audio.paused) {
       // Resuming a song whose play was already reported (queue ended, then play pressed again).
       const id = usePlayer.getState().currentId;
       if (id && playRef.current?.reported) {
@@ -496,12 +548,15 @@ export function PlayerEngine() {
         if (playRef.current) playRef.current.lastTime = audio.currentTime;
       }
       sessionRef.current.lastActivity = Date.now();
+      const seq = loadSeq.current;
       audio.play().catch((err) => {
-        if ((err as DOMException).name === "NotAllowedError") usePlayer.getState().setPlaying(false);
+        if (seq !== loadSeq.current || (err as DOMException).name !== "NotAllowedError") return;
+        if (inJam()) blockJamAudio();
+        else usePlayer.getState().setPlaying(false);
       });
-    } else if (!playing && !audio.paused) audio.pause();
+    } else if (!audible && !audio.paused) audio.pause();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing]);
+  }, [audible]);
 
   // ---------------------------------------------------------------- seek / volume
   const seekTo = usePlayer((s) => s.seekTo);
@@ -509,9 +564,9 @@ export function PlayerEngine() {
     const audio = audioRef.current;
     if (!audio || seekTo == null) return;
     if (audio.src && !audio.src.startsWith("blob:")) {
-      audio.currentTime = seekTo / 1000;
+      audio.currentTime = (jamPlaybackPosition() ?? seekTo) / 1000;
       if (playRef.current) playRef.current.lastTime = audio.currentTime;
-      if (usePlayer.getState().playing && audio.paused) audio.play().catch(() => {});
+      if (usePlayer.getState().playing && jamAudioEnabled() && audio.paused) audio.play().catch(() => {});
     }
     usePlayer.setState({ seekTo: null });
   }, [seekTo]);
