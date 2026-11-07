@@ -1,8 +1,9 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { useSWRConfig } from "swr";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { setTokenGetter, setUnauthorizedHandler } from "./api";
+import { resetJamSession } from "./jam";
+import { usePlayer } from "./player/store";
 import { firebaseAuth, firebaseClientConfigured } from "./firebase";
 import { clearSession, readSessionHint, saveSessionHint } from "./persist";
 
@@ -45,7 +46,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [mode, setMode] = useState<AuthMode>(firebaseClientConfigured ? "firebase" : "demo");
   const [demoLogin, setDemoLogin] = useState(false);
-  const { mutate: mutateCache } = useSWRConfig();
+  const account = useRef<string | null>(null);
+  const acceptSession = useCallback((next: SessionUser | null) => {
+    const previous = account.current ?? readSessionHint()?.uid;
+    if ((previous && previous !== next?.uid) || !next) {
+      resetJamSession();
+      usePlayer.getState().stop();
+      clearSession();
+      try {
+        localStorage.removeItem("pepper.player");
+        localStorage.removeItem("pepper.pendingPlay");
+        sessionStorage.removeItem("pepper.skipOnboarding");
+      } catch { /* storage may be disabled */ }
+    }
+    account.current = next?.uid ?? null;
+    if (next) saveSessionHint(next);
+    setUser(next);
+    setStatus(next ? "signedIn" : "signedOut");
+  }, []);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -59,13 +77,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (cancelled) return;
           if (fu) {
             const u = { uid: fu.uid, name: fu.displayName || fu.email?.split("@")[0] || "Listener", email: fu.email ?? undefined, photoURL: fu.photoURL ?? undefined };
-            saveSessionHint(u);
-            setUser(u);
-            setStatus("signedIn");
+            acceptSession(u);
           } else {
-            clearSession();
-            setUser(null);
-            setStatus("signedOut");
+            acceptSession(null);
           }
         });
         await auth.authStateReady();
@@ -96,8 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setMode("demo");
         const d = readDemo();
         setTokenGetter(async () => readDemo()?.token ?? null);
-        setUser(d?.user ?? null);
-        setStatus(d ? "signedIn" : "signedOut");
+        acceptSession(d?.user ?? null);
       })
       .catch(() => {
         // Offline: keep whatever Firebase restores (or the remembered session).
@@ -107,7 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       unsub?.();
     };
-  }, []);
+  }, [acceptSession]);
 
   const signInWithGoogle = useCallback(async () => {
     const { GoogleAuthProvider, signInWithPopup, signInWithRedirect } = await import("firebase/auth");
@@ -154,42 +167,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const session = { token: data.token as string, user: { uid: data.user.uid, name: data.user.name } };
     localStorage.setItem(DEMO_KEY, JSON.stringify(session));
     setTokenGetter(async () => readDemo()?.token ?? null);
-    setUser(session.user);
-    setStatus("signedIn");
-  }, []);
+    acceptSession(session.user);
+  }, [acceptSession]);
 
   const signOut = useCallback(async () => {
-    // Nothing of this account may show up for the next one.
-    clearSession();
-    void mutateCache(() => true, undefined, { revalidate: false });
     if (mode === "firebase") {
       const { signOut: fbSignOut } = await import("firebase/auth");
       await fbSignOut(firebaseAuth());
     } else {
       localStorage.removeItem(DEMO_KEY);
-      setUser(null);
-      setStatus("signedOut");
     }
-    try {
-      localStorage.removeItem("pepper.player");
-    } catch {
-      /* ignore */
-    }
-  }, [mode, mutateCache]);
+    acceptSession(null);
+  }, [mode, acceptSession]);
 
   // A rejected token means the session is no longer valid: sign out cleanly.
   useEffect(() => {
-    setUnauthorizedHandler(() => {
-      if (mode === "demo") {
-        localStorage.removeItem(DEMO_KEY);
-        setUser(null);
-        setStatus("signedOut");
-      } else {
-        void import("firebase/auth").then(({ signOut: fbSignOut }) => fbSignOut(firebaseAuth()));
-      }
-    });
+    setUnauthorizedHandler(() => { void signOut(); });
     return () => setUnauthorizedHandler(null);
-  }, [mode]);
+  }, [signOut]);
 
   const value = useMemo<AuthState>(
     () => ({ status, mode, user, demoLogin, signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword, signInDemo, signOut }),

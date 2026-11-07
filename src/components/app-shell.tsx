@@ -41,7 +41,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (status === "signedOut" && !isPublic) router.replace(`/login${path !== "/" ? `?next=${encodeURIComponent(path)}` : ""}`);
     if (status === "signedIn" && path === "/login") {
       const next = new URLSearchParams(location.search).get("next");
-      router.replace(next && next.startsWith("/") ? next : "/");
+      router.replace(next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/");
     }
   }, [status, isPublic, path, router]);
 

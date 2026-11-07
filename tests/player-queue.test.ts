@@ -40,3 +40,41 @@ describe("reordering the player queue", () => {
     expect(player.getState().order).toEqual(["a", "d", "b"]);
   });
 });
+
+describe("playback transitions", () => {
+  it("selects a different playlist instead of resuming the previous track", () => {
+    player.getState().playList(["a", "b"], 1, { type: "playlist", id: "first" });
+    player.getState().seek(12000);
+    player.getState().setPlaying(false);
+    player.getState().playList(["x", "y"], 0, { type: "playlist", id: "second" });
+    expect(player.getState()).toMatchObject({ currentId: "x", position: 0, playing: true, seekTo: null, context: { id: "second" } });
+    player.getState().next();
+    expect(player.getState().currentId).toBe("y");
+  });
+
+  it("cancels pending autoplay and seeks when stopped or another track is selected", () => {
+    player.getState().playList(["a", "b"]);
+    player.setState({ needsAutoplay: true, seekTo: 10000, buffering: true });
+    player.getState().jumpToContext(1);
+    expect(player.getState()).toMatchObject({ currentId: "b", needsAutoplay: false, seekTo: null });
+    player.setState({ needsAutoplay: true, seekTo: 10000 });
+    player.getState().stop();
+    expect(player.getState()).toMatchObject({ needsAutoplay: false, seekTo: null, buffering: false, currentId: null });
+  });
+
+  it("keeps duplicate occurrences when shuffle is toggled", () => {
+    player.getState().playList(["a", "b", "a"]);
+    player.getState().setShuffle(true);
+    expect(player.getState().order.filter((id) => id === "a")).toHaveLength(2);
+    player.getState().setShuffle(false);
+    expect(player.getState().order).toEqual(["a", "b", "a"]);
+  });
+
+  it("restores the current position in playlists longer than 1,000 songs", () => {
+    const ids = Array.from({ length: 1700 }, (_, i) => `t${i}`);
+    player.getState().playList(ids, 1500);
+    const saved = player.persist.getOptions().partialize!(player.getState()) as { order: string[]; pos: number; currentId: string };
+    expect(saved.order[saved.pos]).toBe(saved.currentId);
+    expect(saved.order.slice(saved.pos + 1)).toHaveLength(199);
+  });
+});

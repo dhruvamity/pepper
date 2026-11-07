@@ -37,6 +37,7 @@ let clockSampledAt = 0;
 let advanceTimer: ReturnType<typeof setTimeout> | undefined;
 let commands = Promise.resolve();
 let entering = false;
+let generation = 0;
 let volumeTimer: ReturnType<typeof setTimeout> | undefined;
 
 export function setSharedJamVolume(volume: number) {
@@ -116,7 +117,7 @@ function scheduleAdvance(room: Jam) {
   const advance = () => {
     if (useJam.getState().room?.playback !== playback) return;
     void sendJamAction({ type: "advance", sequence: playback.sequence }).then((next) => {
-      if (!next || next.jam?.version === room.version) advanceTimer = setTimeout(advance, next ? 400 : 2000);
+      if (useJam.getState().room?.playback === playback && (!next || next.jam?.version === room.version)) advanceTimer = setTimeout(advance, next ? 400 : 2000);
     });
   };
   // The host usually advances first. A guest can carry on if the host's tab sleeps.
@@ -157,6 +158,9 @@ function saveRoom() {
 }
 
 function resetRoom(forget = true) {
+  ++generation;
+  entering = false;
+  commands = Promise.resolve();
   listening?.abort();
   listening = null;
   roomId = null;
@@ -167,6 +171,12 @@ function resetRoom(forget = true) {
   if (forget) saveRoom();
   setJamControls(null);
   useJam.setState({ room: null, blocked: false, mode: "remote", connection: "connecting", open: false });
+}
+
+/** Detach playback and cancel pending work when the authenticated account changes. */
+export function resetJamSession() {
+  resetRoom();
+  useJam.setState({ uid: null });
 }
 
 function sampleClock(serverTime: number, sent: number) {
@@ -189,6 +199,7 @@ async function watch(id: string, signal: AbortSignal) {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         signal,
       });
+      if (signal.aborted || roomId !== id) return;
       if (res.status === 404 || res.status === 401 || res.status === 403) {
         resetRoom();
         toast("You’re no longer in this Jam");
@@ -267,16 +278,17 @@ async function enter(path: string, body: unknown, mode: Mode) {
   if (roomId) throw new Error("Leave your current Jam first");
   if (entering) return;
   entering = true;
+  const session = generation;
   try {
     const sent = now();
     const snapshot = await api<JamSnapshot>(path, { body });
     if (!snapshot.jam) throw new Error("This Jam has ended");
-    if (uid !== useJam.getState().uid) return;
+    if (session !== generation || uid !== useJam.getState().uid) return;
     sampleClock(snapshot.serverTime, sent);
     connect(snapshot.jam.id, mode, snapshot);
     setJamOpen(true);
   } finally {
-    entering = false;
+    if (session === generation) entering = false;
   }
 }
 
@@ -300,19 +312,20 @@ export function joinListeningJam(id: string, mode: Mode) {
 
 export function sendJamAction(action: JamAction): Promise<JamSnapshot | undefined> {
   const id = roomId;
+  const session = generation;
   if (!id) return Promise.resolve(undefined);
   const next = commands.then(async () => {
-    if (roomId !== id) return undefined;
+    if (roomId !== id || generation !== session) return undefined;
     const sent = now();
     try {
       const snapshot = await api<JamSnapshot>(`/api/jams/${id}`, { body: action });
-      if (roomId !== id) return undefined;
+      if (roomId !== id || generation !== session) return undefined;
       sampleClock(snapshot.serverTime, sent);
       if (!snapshot.jam) resetRoom();
       else apply(snapshot);
       return snapshot;
     } catch (err) {
-      if (roomId !== id) return undefined;
+      if (roomId !== id || generation !== session) return undefined;
       if (err instanceof ApiError && err.status === 404 && !("ids" in action)) resetRoom();
       if (action.type !== "advance") toast((err as Error).message, "error");
       return undefined;

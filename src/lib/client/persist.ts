@@ -73,10 +73,9 @@ function clearPersisted() {
  * SWR cache that starts from the saved answers of the current account and saves new answers
  * of the persisted requests (debounced, so a burst of updates writes once).
  */
-export function persistentCache(): Cache {
+export function persistentCache(uid?: string): Cache {
   const map = new Map<string, State>();
   const s = storage();
-  const uid = readSessionHint()?.uid;
   if (s && uid) {
     for (const key of PERSISTED) {
       try {
@@ -94,7 +93,7 @@ export function persistentCache(): Cache {
   const flush = () => {
     timer = undefined;
     const owner = readSessionHint()?.uid;
-    if (!s || !owner) return dirty.clear();
+    if (!s || !uid || owner !== uid) return dirty.clear();
     for (const key of dirty) {
       const data = map.get(key)?.data;
       try {

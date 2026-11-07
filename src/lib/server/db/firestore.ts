@@ -319,10 +319,15 @@ export class FirestoreRepo implements Repo {
     return { ...emptyLibrary(), ...((s.data() as Partial<UserLibrary>) ?? {}) };
   }
   async setLibraryItem(uid: string, kind: LibraryKind, id: string, on: boolean) {
-    await this.db
-      .collection("libraries")
-      .doc(uid)
-      .set({ [kind]: { [id]: on ? Date.now() : FieldValue.delete() } }, { merge: true });
+    const ref = this.db.collection("libraries").doc(uid);
+    await this.db.runTransaction(async (tx) => {
+      const library = (await tx.get(ref)).data() as UserLibrary | undefined;
+      if (Boolean(library?.[kind]?.[id]) === on) return;
+      tx.set(ref, { [kind]: { [id]: on ? Date.now() : FieldValue.delete() } }, { merge: true });
+      if (kind === "likes") tx.set(this.db.collection("stats").doc(`s${shardOf(id)}`),
+        { t: { [id]: { likes: FieldValue.increment(on ? 1 : -1) } } }, { merge: true });
+    });
+    if (kind === "likes" && this.cache.stats) this.cache.stats.at = 0;
   }
   async listPlaylists(uid: string) {
     const q = await this.db.collection("playlists").where("ownerUid", "==", uid).get();
@@ -344,6 +349,21 @@ export class FirestoreRepo implements Repo {
     batch.set(this.meta(), { version: FieldValue.increment(1) }, { merge: true });
     await batch.commit();
     this.invalidateCatalog();
+  }
+  async updatePlaylist(id: string, change: (playlist: Playlist | null) => Playlist) {
+    const ref = this.db.collection("playlists").doc(id);
+    const next = await this.db.runTransaction(async (tx) => {
+      const current = ((await tx.get(ref)).data() as Playlist | undefined) ?? null;
+      const next = change(current);
+      tx.set(ref, next);
+      if (next.shared) {
+        tx.set(this.lists(), { p: { [id]: JSON.stringify(next) } }, { mergeFields: [new FieldPath("p", id)] });
+        tx.set(this.meta(), { version: FieldValue.increment(1) }, { merge: true });
+      }
+      return next;
+    });
+    if (next.shared) this.invalidateCatalog();
+    return next;
   }
   async deletePlaylist(id: string, shared?: boolean) {
     const ref = this.db.collection("playlists").doc(id);
@@ -492,14 +512,6 @@ export class FirestoreRepo implements Repo {
     }
     this.cache.stats = { at: now, data };
     return data;
-  }
-
-  async bumpLikes(trackId: string, delta: number) {
-    await this.db
-      .collection("stats")
-      .doc(`s${shardOf(trackId)}`)
-      .set({ t: { [trackId]: { likes: FieldValue.increment(delta) } } }, { merge: true });
-    if (this.cache.stats) this.cache.stats.at = 0;
   }
 
   async getCooccurrence(ids: string[]) {

@@ -184,12 +184,12 @@ export const usePlayer = create<PlayerState>()(
       },
       setPlaying(p) {
         if (jamCommand) return jamCommand({ type: "playing", playing: p });
-        set({ playing: p });
+        set({ playing: p, ...(!p ? { needsAutoplay: false } : {}) });
       },
 
       next() {
         if (jamCommand) return jamCommand({ type: "next" });
-        set({ lastAction: "next" });
+        set({ lastAction: "next", needsAutoplay: false });
         const s = get();
         const repeat = s.repeat === "one" ? "all" : s.repeat;
         if (s.upNext.length) {
@@ -220,7 +220,7 @@ export const usePlayer = create<PlayerState>()(
 
       prev() {
         if (jamCommand) return jamCommand({ type: "prev" });
-        set({ lastAction: "prev" });
+        set({ lastAction: "prev", needsAutoplay: false, seekTo: null });
         const s = get();
         if (s.position > 3000 || !s.currentId) {
           set({ seekTo: 0, position: 0 });
@@ -271,7 +271,7 @@ export const usePlayer = create<PlayerState>()(
         if (on === s.shuffle) return;
         if (on) {
           const current = s.currentFrom === "context" ? s.currentId : null;
-          const rest = shuffleInPlace(s.base.filter((id) => id !== current));
+          const rest = shuffleInPlace(s.base.filter((_, index) => index !== (current ? s.base.indexOf(current) : -1)));
           const order = current ? [current, ...rest] : rest;
           set({ shuffle: true, order, pos: current ? 0 : -1 });
         } else {
@@ -330,7 +330,7 @@ export const usePlayer = create<PlayerState>()(
           const [item] = upNext.splice(a, 1);
           upNext.push(...s.order.slice(s.pos + 1, b + 1).map((id) => ({ key: qkey(), id })), item);
           const order = [...s.order.slice(0, s.pos + 1), ...s.order.slice(b + 1)];
-          set({ order, upNext });
+          set({ order, upNext, base: s.shuffle ? s.base : order });
         }
       },
       skipUpcoming(item) {
@@ -353,6 +353,7 @@ export const usePlayer = create<PlayerState>()(
           playing: true,
           position: 0,
           seekTo: null,
+          needsAutoplay: false,
           restartToken: s.restartToken + 1,
           lastAction: "jump",
         });
@@ -360,7 +361,7 @@ export const usePlayer = create<PlayerState>()(
       jumpToContext(index) {
         const s = get();
         if (index < 0 || index >= s.order.length) return;
-        set({ pos: index, currentId: s.order[index], currentFrom: "context", playing: true, position: 0, seekTo: null, restartToken: s.restartToken + 1, lastAction: "jump" });
+        set({ pos: index, currentId: s.order[index], currentFrom: "context", playing: true, position: 0, seekTo: null, needsAutoplay: false, restartToken: s.restartToken + 1, lastAction: "jump" });
       },
       appendAutoplay(ids, keepAction = false) {
         if (jamCommand) return;
@@ -383,6 +384,7 @@ export const usePlayer = create<PlayerState>()(
           context: { type: "autoplay", name: "Autoplay · similar songs" },
           playing: true,
           position: 0,
+          seekTo: null,
           needsAutoplay: false,
           restartToken: s.restartToken + 1,
           lastAction: keepAction ? s.lastAction : "ended",
@@ -408,13 +410,13 @@ export const usePlayer = create<PlayerState>()(
         set({ muted: !get().muted });
       },
       setAutoplay(on) {
-        set({ autoplay: on });
+        set({ autoplay: on, ...(!on ? { needsAutoplay: false, prefetch: null } : {}) });
       },
       setView(v) {
         set({ view: v });
       },
       stop() {
-        set({ base: [], order: [], pos: -1, upNext: [], currentId: null, playing: false, position: 0, duration: 0, context: null, autoplayAnchor: [], prefetch: null });
+        set({ base: [], order: [], pos: -1, upNext: [], currentId: null, currentFrom: "context", playing: false, position: 0, duration: 0, context: null, autoplayAnchor: [], prefetch: null, needsAutoplay: false, seekTo: null, buffering: false, restartToken: get().restartToken + 1 });
       },
     }),
     {
@@ -425,10 +427,10 @@ export const usePlayer = create<PlayerState>()(
       partialize: (player) => {
         const s = soloState ?? player;
         return {
-          base: s.base.slice(0, 1000),
-          order: s.order.slice(0, 1000),
+          base: s.base,
+          order: s.order,
           pos: s.pos,
-          upNext: s.upNext.slice(0, 200),
+          upNext: s.upNext,
           currentId: s.currentId,
           currentFrom: s.currentFrom,
           context: s.context,

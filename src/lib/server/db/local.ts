@@ -215,7 +215,13 @@ export class LocalRepo implements Repo {
     return { ...emptyLibrary(), ...structuredClone(this.state.libraries[uid] ?? {}) };
   }
   async setLibraryItem(uid: string, kind: LibraryKind, id: string, on: boolean) {
+    this.fresh();
     const lib = (this.state.libraries[uid] = { ...emptyLibrary(), ...this.state.libraries[uid] });
+    if (Boolean(lib[kind][id]) === on) return;
+    if (kind === "likes") {
+      const stats = (this.state.stats[id] ??= emptyStats());
+      stats.likes = Math.max(0, stats.likes + (on ? 1 : -1));
+    }
     if (on) lib[kind][id] = Date.now();
     else delete lib[kind][id];
     this.persist();
@@ -235,6 +241,12 @@ export class LocalRepo implements Repo {
     this.state.playlists[p.id] = structuredClone(p);
     if (p.shared || wasShared) this.bump();
     this.persist(Boolean(p.shared || wasShared));
+  }
+  async updatePlaylist(id: string, change: (playlist: Playlist | null) => Playlist) {
+    this.fresh();
+    const next = change(structuredClone(this.state.playlists[id] ?? null));
+    await this.savePlaylist(next);
+    return next;
   }
   async deletePlaylist(id: string, shared?: boolean) {
     const wasShared = shared || this.state.playlists[id]?.shared;
@@ -337,11 +349,6 @@ export class LocalRepo implements Repo {
   }
   async getTrackStats() {
     return structuredClone(this.state.stats);
-  }
-  async bumpLikes(trackId: string, delta: number) {
-    const st = (this.state.stats[trackId] ??= emptyStats());
-    st.likes = Math.max(0, st.likes + delta);
-    this.persist();
   }
   async getCooccurrence(ids: string[]) {
     const out: Record<string, Record<string, number>> = {};

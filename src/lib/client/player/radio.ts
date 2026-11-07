@@ -4,13 +4,19 @@ import { api } from "../api";
 import { toast } from "../toast";
 import { usePlayer } from "./store";
 
+let radioRequest = 0;
+
 /** Start "song radio": the seed followed by recommendations that fit it. */
 export async function startRadio(seedId: string, title: string) {
+  const request = ++radioRequest;
+  const before = usePlayer.getState();
   try {
     const { items } = await api<{ items: { id: string }[] }>(`/api/radio?mode=radio&limit=40&seeds=${seedId}`);
-    usePlayer.getState().playList([seedId, ...items.map((i) => i.id)], 0, { type: "radio", id: seedId, name: `${title} Radio`, href: `/track/${seedId}` }, { shuffle: false });
+    const current = usePlayer.getState();
+    if (request !== radioRequest || current.restartToken !== before.restartToken || current.playing !== before.playing) return;
+    current.playList([seedId, ...items.map((i) => i.id)], 0, { type: "radio", id: seedId, name: `${title} Radio`, href: `/track/${seedId}` }, { shuffle: false });
   } catch (e) {
-    toast((e as Error).message, "error");
+    if (request === radioRequest && usePlayer.getState().restartToken === before.restartToken) toast((e as Error).message, "error");
   }
 }
 

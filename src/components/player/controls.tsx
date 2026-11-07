@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePlayer } from "@/lib/client/player/store";
 import { formatDuration } from "@/lib/util";
 import { NextIcon, PauseIcon, PlayIcon, PrevIcon, RepeatIcon, ShuffleIcon } from "../icons";
@@ -11,8 +11,28 @@ export function SeekBar({ compact, thumb }: { compact?: boolean; thumb?: boolean
   const duration = usePlayer((s) => s.duration);
   const seek = usePlayer((s) => s.seek);
   const [drag, setDrag] = useState<number | null>(null);
+  const keyboardSeek = useRef(false);
+  const awaitingPosition = useRef(false);
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const value = drag ?? position;
   const pct = duration > 0 ? Math.min(100, (value / duration) * 100) : 0;
+  useEffect(() => {
+    if (!awaitingPosition.current || drag == null || Math.abs(position - drag) > 250) return;
+    awaitingPosition.current = false;
+    if (clearTimer.current) clearTimeout(clearTimer.current);
+    clearTimer.current = null;
+    setDrag(null);
+  }, [position, drag]);
+  useEffect(() => () => {
+    if (clearTimer.current) clearTimeout(clearTimer.current);
+  }, []);
+  const clearPendingSeek = () => {
+    keyboardSeek.current = false;
+    awaitingPosition.current = false;
+    if (clearTimer.current) clearTimeout(clearTimer.current);
+    clearTimer.current = null;
+    setDrag(null);
+  };
   return (
     <div className={`flex w-full items-center gap-2 ${compact ? "" : "flex-col"}`}>
       {compact && <span className="w-10 text-right text-xs tabular-nums text-subdued">{formatDuration(value)}</span>}
@@ -24,15 +44,28 @@ export function SeekBar({ compact, thumb }: { compact?: boolean; thumb?: boolean
         step={250}
         value={value}
         onChange={(e) => setDrag(Number(e.target.value))}
+        onKeyDown={(e) => {
+          if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(e.key)) keyboardSeek.current = true;
+        }}
         onPointerUp={() => {
           if (drag != null) seek(drag);
-          setDrag(null);
+          clearPendingSeek();
         }}
         onKeyUp={() => {
-          if (drag != null) seek(drag);
-          setDrag(null);
+          if (!keyboardSeek.current) return;
+          keyboardSeek.current = false;
+          if (drag != null) {
+            seek(drag);
+            awaitingPosition.current = true;
+            if (clearTimer.current) clearTimeout(clearTimer.current);
+            clearTimer.current = setTimeout(() => {
+              awaitingPosition.current = false;
+              clearTimer.current = null;
+              setDrag(null);
+            }, 2000);
+          }
         }}
-        onBlur={() => setDrag(null)}
+        onBlur={clearPendingSeek}
         className={`range ${thumb ? "always-thumb" : ""}`}
         style={{ "--pct": `${pct}%` } as React.CSSProperties}
       />

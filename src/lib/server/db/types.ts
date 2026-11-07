@@ -57,6 +57,7 @@ export interface Repo {
   listPlaylists(uid: string): Promise<Playlist[]>;
   getPlaylist(id: string): Promise<Playlist | null>;
   savePlaylist(p: Playlist): Promise<void>;
+  updatePlaylist(id: string, change: (playlist: Playlist | null) => Playlist): Promise<Playlist>;
   deletePlaylist(id: string, shared?: boolean): Promise<void>;
 
   // Live listening rooms
@@ -70,7 +71,6 @@ export interface Repo {
   getTaste(uid: string): Promise<UserTaste>;
   addTaste(uid: string, artists: Record<string, number>, genres: Record<string, number>): Promise<void>;
   getTrackStats(): Promise<Record<string, TrackStats>>;
-  bumpLikes(trackId: string, delta: number): Promise<void>;
   getCooccurrence(trackIds: string[]): Promise<Record<string, Record<string, number>>>;
   getDaily(days: string[]): Promise<DailyStats[]>;
   recentPlays(limit: number, uid?: string): Promise<PlayEvent[]>;

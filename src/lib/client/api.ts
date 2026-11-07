@@ -42,7 +42,7 @@ export async function api<T = unknown>(
     keepalive: init.keepalive,
   });
   if (!res.ok) {
-    if (res.status === 401 && token) onUnauthorized?.();
+    if (res.status === 401 && token && token === await tokenGetter()) onUnauthorized?.();
     let data: { error?: string; issues?: string[] } | undefined;
     try {
       data = await res.json();

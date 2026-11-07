@@ -82,11 +82,8 @@ export function MixCard({ mix }: { mix: MixSummary }) {
 export function TrackCard({ track, list, index, ctx, reason, compact }: { track: CatalogTrack; list: string[]; index: number; ctx: PlayContext; reason?: string; compact?: boolean }) {
   const isCurrent = usePlayer((s) => s.currentId === track.id);
   const playing = usePlayer((s) => s.playing && s.currentId === track.id);
-  const play = () => {
-    const st = usePlayer.getState();
-    if (isCurrent) st.toggle();
-    else st.playList(list, index, ctx);
-  };
+  const pb = useCollectionPlayback(ctx, list);
+  const play = () => pb.playAt(list[index] ?? track.id);
   if (compact) {
     return (
       <button type="button" onClick={play} className="flex w-44 shrink-0 items-center gap-2 rounded-md bg-white/5 p-2 text-left hover:bg-white/10">

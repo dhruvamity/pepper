@@ -149,7 +149,8 @@ export async function upload(id: string, onUploaded: () => void) {
   const it0 = useUploads.getState().items.find((i) => i.id === id);
   if (!it0 || !["ready", "error"].includes(it0.status) || !it0.sha256 || !it0.meta || !it0.draft) return;
   await withSlot(uploadSlots, async () => {
-    const it = useUploads.getState().items.find((i) => i.id === id)!;
+    const it = useUploads.getState().items.find((i) => i.id === id);
+    if (!it || !["ready", "error"].includes(it.status) || !it.sha256 || !it.meta || !it.draft) return;
     const upd = (p: Partial<UploadItem>) => useUploads.getState().update(id, p);
     try {
       upd({ status: "uploading", progress: 0, error: undefined });

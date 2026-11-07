@@ -14,7 +14,8 @@
     "setup:cors": "tsx scripts/setup-cors.ts",
     "local:reset": "node -e \"require('fs').rmSync('.data',{recursive:true,force:true})\"",
     "import": "tsx scripts/import.ts",
-    "eval:autoplay": "tsx scripts/eval-autoplay.ts"
+    "eval:autoplay": "tsx scripts/eval-autoplay.ts",
+    "test:e2e": "node scripts/e2e.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1162.0",
@@ -32,6 +33,7 @@
     "zustand": "^5.0.16"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^24.19.2",
     "@types/react": "^19",
@@ -45,6 +47,7 @@
     "vitest": "^5.1.0"
   },
   "overrides": {
-    "jwks-rsa": "3.2.2"
+    "jwks-rsa": "3.2.2",
+    "@grpc/grpc-js": "^1.14.7"
   }
 }

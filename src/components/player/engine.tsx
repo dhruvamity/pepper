@@ -114,6 +114,8 @@ export function PlayerEngine() {
   const sessionRef = useRef({ id: "", lastActivity: 0, lastStreamed: undefined as string | undefined, played: [] as string[], kept: [] as string[], skipped: [] as string[] });
   const tokenRef = useRef<string | null>(null);
   const loadSeq = useRef(0);
+  const loadedId = useRef<string | null>(null);
+  const loadedRestart = useRef(-1);
   const catalogRef = useRef(catalog);
   useEffect(() => {
     catalogRef.current = catalog;
@@ -173,12 +175,13 @@ export function PlayerEngine() {
   const replanSeq = useRef(0);
   const replanSoon = () => {
     const seq = ++replanSeq.current;
+    const restart = usePlayer.getState().restartToken;
     setTimeout(() => {
       const s = usePlayer.getState();
-      if (seq !== replanSeq.current || s.context?.type !== "autoplay" || !s.autoplay) return;
+      if (seq !== replanSeq.current || s.restartToken !== restart || s.context?.type !== "autoplay" || !s.autoplay) return;
       fetchAutoplay(false)
         .then((ids) => {
-          if (seq !== replanSeq.current) return;
+          if (seq !== replanSeq.current || usePlayer.getState().restartToken !== restart) return;
           const cur = usePlayer.getState().currentId;
           usePlayer.getState().replaceUpcoming(ids.filter((id) => id !== cur));
         })
@@ -248,10 +251,11 @@ export function PlayerEngine() {
     if (!nextId) {
       if (!inJam() && s.autoplay && s.repeat === "off" && s.currentId && prefetchedFor.current !== s.currentId) {
         const after = s.currentId;
+        const restart = s.restartToken;
         prefetchedFor.current = after;
         fetchAutoplay(true)
           .then((ids) => {
-            if (!inJam() && usePlayer.getState().currentId === after && ids.length) usePlayer.setState({ prefetch: { after, ids } });
+            if (!inJam() && usePlayer.getState().currentId === after && usePlayer.getState().restartToken === restart && ids.length) usePlayer.setState({ prefetch: { after, ids } });
           })
           .catch(() => {
             prefetchedFor.current = null;
@@ -263,7 +267,7 @@ export function PlayerEngine() {
     preloadedFor.current = nextId;
     streamUrl(nextId)
       .then((url) => {
-        if (preloadRef.current && navigator.onLine) preloadRef.current.src = url;
+        if (preloadedFor.current === nextId && preloadRef.current && navigator.onLine) preloadRef.current.src = url;
       })
       .catch(() => {});
   };
@@ -296,11 +300,17 @@ export function PlayerEngine() {
     let lastSave = 0;
     const alignJam = () => {
       const position = jamPlaybackPosition();
-      if (position === null || !audio.src || audio.src.startsWith("blob:") || !audio.readyState || audio.seeking) return;
+      if (position === null || !isLoaded() || !audio.readyState || audio.seeking) return;
       if (Math.abs(audio.currentTime * 1000 - position) > 500) audio.currentTime = position / 1000;
     };
+    // Media events queued by a previous source must not change the new selection.
+    const isLoaded = () => {
+      const s = usePlayer.getState();
+      return loadedId.current === s.currentId && loadedRestart.current === s.restartToken
+        && Boolean(audio.src) && audio.currentSrc === audio.src && !audio.src.startsWith("blob:");
+    };
     const onTime = () => {
-      if (!audio.src || audio.src.startsWith("blob:")) return;
+      if (!isLoaded()) return;
       const t = audio.currentTime;
       const p = playRef.current;
       if (p && !audio.paused) {
@@ -337,10 +347,10 @@ export function PlayerEngine() {
       }
     };
     const onSeeked = () => {
-      if (playRef.current) playRef.current.lastTime = audio.currentTime;
+      if (isLoaded() && playRef.current) playRef.current.lastTime = audio.currentTime;
     };
     const onEnded = () => {
-      if (audio.src.startsWith("blob:")) return;
+      if (!isLoaded() || !audio.ended) return;
       finishCurrent("ended");
       const s = usePlayer.getState();
       if (inJam()) return; // The room advances against the server clock.
@@ -348,19 +358,19 @@ export function PlayerEngine() {
       s.ended();
       if (repeatOne) startPlay(s.currentId!);
     };
-    const onWaiting = () => usePlayer.getState().setBuffering(true);
-    const onPlaying = () => usePlayer.getState().setBuffering(false);
+    const onWaiting = () => { if (isLoaded()) usePlayer.getState().setBuffering(true); };
+    const onPlaying = () => { if (isLoaded()) usePlayer.getState().setBuffering(false); };
     const onPause = () => {
       // OS-level pause (headphones unplugged, lock screen…)
-      if (!inJam() && usePlayer.getState().playing && !audio.ended && audio.src && !audio.src.startsWith("blob:")) usePlayer.getState().setPlaying(false);
+      if (!inJam() && isLoaded() && audio.paused && usePlayer.getState().playing && !usePlayer.getState().needsAutoplay && !audio.ended) usePlayer.getState().setPlaying(false);
     };
     const onPlay = () => {
-      if (!inJam() && !usePlayer.getState().playing && !audio.src.startsWith("blob:")) usePlayer.getState().setPlaying(true);
+      if (!inJam() && isLoaded() && !audio.paused && !usePlayer.getState().playing) usePlayer.getState().setPlaying(true);
     };
     let retried = "";
     const onError = async () => {
       const id = usePlayer.getState().currentId;
-      if (!id || audio.src.startsWith("blob:") || !audio.src) return;
+      if (!id || !isLoaded()) return;
       if (retried === id) {
         if (inJam()) {
           blockJamAudio();
@@ -434,7 +444,18 @@ export function PlayerEngine() {
     }
 
     return () => {
+      // These are generation counters, deliberately invalidated at unmount.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      ++loadSeq.current;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      ++replanSeq.current;
+      loadedId.current = null;
       audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+      preloadRef.current?.removeAttribute("src");
+      preloadRef.current?.load();
+      unlocked = false;
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("loadedmetadata", alignJam);
       audio.removeEventListener("seeked", onSeeked);
@@ -458,7 +479,6 @@ export function PlayerEngine() {
   const restartToken = usePlayer((s) => s.restartToken);
   const catalogReady = Boolean(catalog);
   const currentAvailable = Boolean(currentId && catalog?.byId.has(currentId));
-  const loadedId = useRef<string | null>(null);
   const listenHere = useJam((s) => !s.room || s.mode === "remote");
   useEffect(() => {
     if (catalogReady && currentId && !currentAvailable && inJam()) void refresh();
@@ -471,13 +491,12 @@ export function PlayerEngine() {
     const seq = ++loadSeq.current;
     const s = usePlayer.getState();
     loadedId.current = null;
+    prefetchedFor.current = null;
 
     if (playRef.current && !playRef.current.reported) finishCurrent(reasonFor(s.lastAction, playRef.current));
-    if (!id || inJam()) {
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-    }
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
     if (!id || !listenHere) {
       playRef.current = null;
       usePlayer.getState().setBuffering(false);
@@ -485,11 +504,21 @@ export function PlayerEngine() {
     }
     const t = track(id);
     if (!t) {
-      // Track was deleted from the catalog.
-      if (s.playing && !inJam()) s.next();
+      // Remove deleted entries before advancing, including repeated/deleted songs.
+      // A repeat-all queue containing only deleted tracks must terminate.
+      if (!inJam()) {
+        const exists = (id: string) => Boolean(catalogRef.current?.byId.has(id));
+        const order = s.order.filter(exists);
+        const pos = s.order.slice(0, s.pos + 1).filter(exists).length - 1;
+        const upNext = s.upNext.filter((item) => exists(item.id));
+        if (!order.length && !upNext.length) s.stop();
+        else {
+          usePlayer.setState({ order, base: s.base.filter(exists), pos, upNext });
+          if (s.playing) usePlayer.getState().next();
+        }
+      }
       return;
     }
-    const resumeAt = s.position;
     startPlay(id);
     document.title = `${t.title} · ${t.artists.map((a) => a.name).join(", ")}`;
     if ("mediaSession" in navigator) {
@@ -507,7 +536,10 @@ export function PlayerEngine() {
         if (seq !== loadSeq.current) return;
         audio.src = url;
         loadedId.current = id;
-        const at = jamPlaybackPosition() ?? resumeAt;
+        loadedRestart.current = s.restartToken;
+        const latest = usePlayer.getState();
+        const at = jamPlaybackPosition() ?? latest.seekTo ?? latest.position;
+        if (latest.seekTo !== null) usePlayer.setState({ seekTo: null });
         if (at > 0) audio.currentTime = at / 1000;
         if (playRef.current) playRef.current.lastTime = at / 1000;
         if (usePlayer.getState().playing && jamAudioEnabled()) {
@@ -535,11 +567,18 @@ export function PlayerEngine() {
   // ---------------------------------------------------------------- play / pause
   const playing = usePlayer((s) => s.playing);
   const jamAudio = useJam((s) => !s.room || (s.mode === "remote" && !s.blocked));
-  const audible = playing && jamAudio;
+  const needsAutoplay = usePlayer((s) => s.needsAutoplay);
+  const audible = playing && jamAudio && !needsAutoplay;
   useEffect(() => {
     const audio = audioRef.current;
     if ("mediaSession" in navigator) navigator.mediaSession.playbackState = audible ? "playing" : "paused";
-    if (!audio || !audio.src || audio.src.startsWith("blob:") || (inJam() && loadedId.current !== usePlayer.getState().currentId)) return;
+    if (!audio) return;
+    const state = usePlayer.getState();
+    if (!audio.src || audio.src.startsWith("blob:") || loadedId.current !== state.currentId || loadedRestart.current !== state.restartToken) {
+      // A failed URL request can be retried with Play; pending loads start themselves.
+      if (audible && state.currentId && !state.buffering && catalogReady) usePlayer.setState({ restartToken: state.restartToken + 1 });
+      return;
+    }
     if (audible && audio.paused) {
       // Resuming a song whose play was already reported (queue ended, then play pressed again).
       const id = usePlayer.getState().currentId;
@@ -563,6 +602,7 @@ export function PlayerEngine() {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || seekTo == null) return;
+    if (loadedId.current !== usePlayer.getState().currentId || loadedRestart.current !== usePlayer.getState().restartToken) return;
     if (audio.src && !audio.src.startsWith("blob:")) {
       audio.currentTime = (jamPlaybackPosition() ?? seekTo) / 1000;
       if (playRef.current) playRef.current.lastTime = audio.currentTime;
@@ -581,24 +621,27 @@ export function PlayerEngine() {
   }, [volume, muted]);
 
   // ---------------------------------------------------------------- autoplay radio
-  const needsAutoplay = usePlayer((s) => s.needsAutoplay);
   useEffect(() => {
-    if (!needsAutoplay) return;
+    if (!needsAutoplay || inJam()) return;
+    let cancelled = false;
     const s = usePlayer.getState();
     // The current song is over (skipped or finished) even though no new song has started yet.
     if (playRef.current && !playRef.current.reported) finishCurrent(reasonFor(s.lastAction, playRef.current));
     fetchAutoplay(false)
       .then((ids) => {
-        if (!usePlayer.getState().needsAutoplay) return;
+        if (cancelled || inJam() || !usePlayer.getState().needsAutoplay || usePlayer.getState().restartToken !== s.restartToken) return;
         if (!ids.length) {
           usePlayer.setState({ needsAutoplay: false, playing: false });
           return;
         }
         usePlayer.getState().appendAutoplay(ids);
       })
-      .catch(() => usePlayer.setState({ needsAutoplay: false, playing: false }));
+      .catch(() => {
+        if (!cancelled && !inJam() && usePlayer.getState().needsAutoplay && usePlayer.getState().restartToken === s.restartToken) usePlayer.setState({ needsAutoplay: false, playing: false });
+      });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsAutoplay]);
+  }, [needsAutoplay, restartToken]);
 
   return null;
 }

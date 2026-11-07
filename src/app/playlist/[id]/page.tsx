@@ -27,7 +27,7 @@ export default function PlaylistPage() {
   const { data, error } = useSWR<{ playlist: Playlist }>(`/api/playlists/${id}`, fetcher);
   const { isPlaylistSaved, toggleSavePlaylist } = useLibraryActions();
   // Shared playlists come with the catalog, so they open instantly.
-  const p = me?.playlists.find((x) => x.id === id) ?? data?.playlist ?? catalog?.playlists.get(id);
+  const p = error ? undefined : data?.playlist ?? me?.playlists.find((x) => x.id === id) ?? catalog?.playlists.get(id);
   const tracks = useTracks(p?.trackIds);
   const [menu, setMenu] = useState(false);
   const [editing, setEditing] = useState(false);

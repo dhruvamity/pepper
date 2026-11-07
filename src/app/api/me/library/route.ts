@@ -14,11 +14,6 @@ export const PUT = route(async (req) => {
   const u = await requireUser(req);
   const { kind, id, on } = body.parse(await readJson(req));
   const db = await repo();
-  const lib = await db.getLibrary(u.uid);
-  const was = Boolean(lib[kind]?.[id]);
-  if (was !== on) {
-    await db.setLibraryItem(u.uid, kind, id, on);
-    if (kind === "likes") await db.bumpLikes(id, on ? 1 : -1);
-  }
+  await db.setLibraryItem(u.uid, kind, id, on);
   return json({ ok: true });
 });

@@ -19,10 +19,10 @@ async function load(req: Request, ctx: Ctx, mustOwn: boolean) {
   const db = await repo();
   const stored = await db.getPlaylist(id);
   const p = stored && (stored.shared ? stored : (await db.getCatalog()).playlists?.find((list) => list.id === id) ?? stored);
-  if (!p) throw new HttpError(404, "Playlist not found");
+  if (!p || (!p.shared && p.ownerUid !== u.uid)) throw new HttpError(404, "Playlist not found");
   // Shared playlists belong to everyone: admins look after them.
   if (mustOwn && p.ownerUid !== u.uid && !(p.shared && u.isAdmin)) throw new HttpError(403, "Only the owner can change this playlist");
-  return { db, p };
+  return { db, p, u };
 }
 
 export const GET = route<Ctx>(async (req, ctx) => {
@@ -31,13 +31,19 @@ export const GET = route<Ctx>(async (req, ctx) => {
 });
 
 export const PATCH = route<Ctx>(async (req, ctx) => {
-  const { db, p } = await load(req, ctx, true);
+  const { db, p, u } = await load(req, ctx, true);
   const input = patch.parse(await readJson(req));
-  let ids = input.trackIds ?? p.trackIds;
-  if (input.add?.length) ids = [...ids, ...input.add.filter((x) => !ids.includes(x))];
-  if (input.remove?.length) ids = ids.filter((x) => !input.remove!.includes(x));
-  const next = { ...p, ...("name" in input && input.name ? { name: input.name } : {}), description: input.description ?? p.description, trackIds: ids, updatedAt: Date.now() };
-  await db.savePlaylist(next);
+  const next = await db.updatePlaylist(p.id, (current) => {
+    if (!current) throw new HttpError(404, "Playlist not found");
+    const shared = current.shared || p.shared;
+    if (current.ownerUid !== u.uid && !(shared && u.isAdmin)) throw new HttpError(403, "Only the owner can change this playlist");
+    let ids = [...new Set([...(input.trackIds ?? current.trackIds), ...(input.add ?? [])])];
+    if (input.remove?.length) ids = ids.filter((id) => !input.remove!.includes(id));
+    if (ids.length > 2000) throw new HttpError(400, "A playlist can contain up to 2,000 songs");
+    return { ...current, ...(shared ? { shared: true } : {}), name: input.name ?? current.name,
+      ...(input.description !== undefined ? { description: input.description } : {}),
+      trackIds: ids, updatedAt: Date.now() };
+  });
   return json({ playlist: next });
 });
 

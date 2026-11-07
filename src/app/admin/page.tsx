@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import useSWR, { mutate } from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { ColumnChart, Meter, RankList, SERIES_1, SERIES_2, StatTile } from "@/components/admin/charts";
 import { Cover } from "@/components/ui/cover";
 import { api, fetcher } from "@/lib/client/api";
@@ -88,6 +88,7 @@ function RecRow({ name, color, r }: { name: string; color: string; r: Rate }) {
 }
 
 export default function AdminDashboard() {
+  const { mutate } = useSWRConfig();
   const [days, setDays] = useState(30);
   const { data, isLoading } = useSWR<Analytics>(`/api/admin/analytics?days=${days}`, fetcher, { keepPreviousData: true, refreshInterval: 60_000 });
   const { catalog } = useCatalog();
