@@ -1,8 +1,10 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useSWRConfig } from "swr";
 import { setTokenGetter, setUnauthorizedHandler } from "./api";
 import { firebaseAuth, firebaseClientConfigured } from "./firebase";
+import { clearSession, readSessionHint, saveSessionHint } from "./persist";
 
 export type AuthMode = "firebase" | "demo";
 
@@ -43,42 +45,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [mode, setMode] = useState<AuthMode>(firebaseClientConfigured ? "firebase" : "demo");
   const [demoLogin, setDemoLogin] = useState(false);
+  const { mutate: mutateCache } = useSWRConfig();
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
     let cancelled = false;
-    (async () => {
-      let serverMode: AuthMode = "demo";
-      try {
-        const cfg = await fetch("/api/config").then((r) => r.json());
-        serverMode = cfg.auth === "firebase" ? "firebase" : "demo";
-        setDemoLogin(Boolean(cfg.demoLogin));
-      } catch {
-        /* offline: fall back to whatever we can */
+    const startFirebase = () => {
+      // Requests wait for Firebase to restore the session, so none goes out without a token.
+      const ready = (async () => {
+        const { onIdTokenChanged } = await import("firebase/auth");
+        const auth = firebaseAuth();
+        unsub = onIdTokenChanged(auth, (fu) => {
+          if (cancelled) return;
+          if (fu) {
+            const u = { uid: fu.uid, name: fu.displayName || fu.email?.split("@")[0] || "Listener", email: fu.email ?? undefined, photoURL: fu.photoURL ?? undefined };
+            saveSessionHint(u);
+            setUser(u);
+            setStatus("signedIn");
+          } else {
+            clearSession();
+            setUser(null);
+            setStatus("signedOut");
+          }
+        });
+        await auth.authStateReady();
+        return auth;
+      })();
+      setTokenGetter(async () => {
+        const auth = await ready;
+        return auth.currentUser ? auth.currentUser.getIdToken() : null;
+      });
+      // Returning listener: open the app right away; Firebase confirms (or signs out) shortly.
+      const hint = readSessionHint();
+      if (hint) {
+        setUser(hint);
+        setStatus("signedIn");
       }
-      const m: AuthMode = serverMode === "firebase" && firebaseClientConfigured ? "firebase" : "demo";
-      if (cancelled) return;
-      setMode(m);
-      if (m === "demo") {
+    };
+
+    // Firebase builds know their mode up front; start without waiting for the server.
+    if (firebaseClientConfigured) startFirebase();
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((cfg: { auth?: string; demoLogin?: boolean }) => {
+        if (cancelled) return;
+        setDemoLogin(Boolean(cfg.demoLogin));
+        if (firebaseClientConfigured && cfg.auth === "firebase") return;
+        // Local/demo server (or no Firebase config in this build): demo sessions.
+        unsub?.();
+        setMode("demo");
         const d = readDemo();
         setTokenGetter(async () => readDemo()?.token ?? null);
         setUser(d?.user ?? null);
         setStatus(d ? "signedIn" : "signedOut");
-        return;
-      }
-      const { onIdTokenChanged } = await import("firebase/auth");
-      const auth = firebaseAuth();
-      setTokenGetter(async () => (auth.currentUser ? auth.currentUser.getIdToken() : null));
-      unsub = onIdTokenChanged(auth, (fu) => {
-        if (fu) {
-          setUser({ uid: fu.uid, name: fu.displayName || fu.email?.split("@")[0] || "Listener", email: fu.email ?? undefined, photoURL: fu.photoURL ?? undefined });
-          setStatus("signedIn");
-        } else {
-          setUser(null);
-          setStatus("signedOut");
-        }
+      })
+      .catch(() => {
+        // Offline: keep whatever Firebase restores (or the remembered session).
+        if (!firebaseClientConfigured && !cancelled) setStatus("signedOut");
       });
-    })();
     return () => {
       cancelled = true;
       unsub?.();
@@ -135,6 +159,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // Nothing of this account may show up for the next one.
+    clearSession();
+    void mutateCache(() => true, undefined, { revalidate: false });
     if (mode === "firebase") {
       const { signOut: fbSignOut } = await import("firebase/auth");
       await fbSignOut(firebaseAuth());
@@ -148,7 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore */
     }
-  }, [mode]);
+  }, [mode, mutateCache]);
 
   // A rejected token means the session is no longer valid: sign out cleanly.
   useEffect(() => {
