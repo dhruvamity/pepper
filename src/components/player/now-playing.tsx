@@ -155,7 +155,7 @@ export function NowPlaying() {
                     {mainArtist.name}
                   </Link>
                   <div className="text-sm text-subdued">
-                    {artistStats ? `${formatCount(artistStats.monthlyPlays)} plays this month` : `${mainArtist.trackIds.length} songs on Pepper`}
+                    {artistStats ? `${formatCount(artistStats.monthlyPlays)} plays this month` : `${mainArtist.trackIds.length} songs`}
                   </div>
                 </div>
                 <button

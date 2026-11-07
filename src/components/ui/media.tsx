@@ -40,7 +40,7 @@ export function PlaylistCard({ playlist }: { playlist: Playlist }) {
     <MediaCard
       href={`/playlist/${playlist.id}`}
       title={playlist.name}
-      subtitle={`By ${playlist.ownerName}`}
+      subtitle={playlist.shared ? `${playlist.trackIds.length} songs` : `By ${playlist.ownerName}`}
       images={covers}
       playing={pb.isPlaying}
       onPlay={playlist.trackIds.length ? pb.toggle : undefined}

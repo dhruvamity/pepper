@@ -181,7 +181,7 @@ function SearchInner() {
           )}
           <h2 className="px-4 pb-4 pt-8 text-xl font-bold sm:px-6 sm:text-2xl">Browse all</h2>
           <div className="grid grid-cols-2 gap-3 px-4 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-6 sm:px-6">
-            <GenreTile name="New on Pepper" color="#e8115b" href="/genre/new" coverId={catalog?.tracks[0]?.id} />
+            <GenreTile name="Recently added" color="#e8115b" href="/genre/new" coverId={catalog?.tracks[0]?.id} />
             <GenreTile name="Made For You" color="#1e3264" href="/" coverId={catalog?.tracks[1]?.id} />
             <GenreTile name="Charts" color="#8d67ab" href="/genre/charts" coverId={catalog?.tracks[2]?.id} />
             {catalog?.genres.map((g) => <GenreTile key={g.key} name={g.name} color={g.color} href={`/genre/${g.key}`} coverId={g.coverTrackId} />)}

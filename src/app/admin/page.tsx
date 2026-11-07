@@ -180,7 +180,7 @@ export default function AdminDashboard() {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Card title="Recommendation quality" sub="Plays from mixes, radio & autoplay vs. songs listeners picked themselves">
               <div className="space-y-5">
-                <RecRow name="Recommended by Pepper" color={SERIES_1} r={data.recommendations.recommended} />
+                <RecRow name="Recommended for you" color={SERIES_1} r={data.recommendations.recommended} />
                 <RecRow name="Chosen by listeners" color={SERIES_2} r={data.recommendations.organic} />
               </div>
               <p className="mt-4 text-xs text-muted">

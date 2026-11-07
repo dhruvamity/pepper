@@ -51,7 +51,7 @@ export default function LoginPage() {
           <h1 className="mt-6 text-[28px] font-extrabold leading-tight tracking-tight sm:text-[32px]">
             Millions of songs.
             <br />
-            Free on Pepper.
+            All free.
           </h1>
         </div>
 
@@ -123,7 +123,7 @@ export default function LoginPage() {
                 });
             }}
           >
-            <h2 className="pb-1 text-center text-xl font-bold">{mode === "login" ? "Log in to Pepper" : mode === "signup" ? "Sign up to start listening" : "Reset your password"}</h2>
+            <h2 className="pb-1 text-center text-xl font-bold">{mode === "login" ? "Log in" : mode === "signup" ? "Sign up to start listening" : "Reset your password"}</h2>
             {mode === "signup" && <input className={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" autoComplete="name" />}
             <input className={input} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" autoComplete="email" />
             {mode !== "reset" && (

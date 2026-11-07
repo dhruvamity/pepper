@@ -397,11 +397,11 @@ function reasonFor(s: Scored, w: Weights, idx: Index, data: RecData, opts: RecOp
     case "known":
       return "One of your favourites";
     case "fresh":
-      return "New on Pepper";
+      return "Recently added";
     case "quality":
       return "Listeners finish this one";
     default:
-      return opts.mode === "radio" ? "Fits this vibe" : "Trending on Pepper";
+      return opts.mode === "radio" ? "Fits this vibe" : "Trending now";
   }
 }
 

@@ -107,7 +107,7 @@ export function genreMixes(data: Pick<RecData, "tracks" | "stats" | "now">, max 
       return {
         id: `genre-${k}`,
         title: `${v.name} Mix`,
-        description: `The best of ${v.name} on Pepper`,
+        description: `The best of ${v.name}`,
         color: MIX_COLORS[(i + 3) % MIX_COLORS.length],
         coverTrackIds: ids.slice(0, 4),
         trackIds: ids,
@@ -174,7 +174,7 @@ export function buildHome({ data, userName, playlists, savedPlaylists }: HomeInp
 
   if (recent.length) sections.push({ id: "recent", title: "Recently played", kind: "tracks", items: recent.slice(0, 15) });
 
-  if (shared.length) sections.push({ id: "shared-playlists", title: "Pepper playlists", kind: "playlists", items: shared.slice(0, 20).map((p) => p.id) });
+  if (shared.length) sections.push({ id: "shared-playlists", title: "Curated playlists", kind: "playlists", items: shared.slice(0, 20).map((p) => p.id) });
 
   const discover = recommend(data, { mode: "discover", limit: 20 });
   if (discover.length) {
@@ -204,11 +204,11 @@ export function buildHome({ data, userName, playlists, savedPlaylists }: HomeInp
   }
 
   const hot = trending(data, 20);
-  if (hot.length >= 3) sections.push({ id: "trending", title: "Trending now", subtitle: "Most played on Pepper lately", kind: "tracks", items: hot });
+  if (hot.length >= 3) sections.push({ id: "trending", title: "Trending now", subtitle: "Most played lately", kind: "tracks", items: hot });
 
   const newest = [...data.tracks].sort((a, b) => b.createdAt - a.createdAt);
   const newAlbums = uniqueBy(newest, (t) => t.album.id).slice(0, 15).map((t) => t.album.id);
-  if (newAlbums.length) sections.push({ id: "new", title: "New on Pepper", kind: "albums", items: newAlbums });
+  if (newAlbums.length) sections.push({ id: "new", title: "Recently added", kind: "albums", items: newAlbums });
 
   // Artists: personal favourites, otherwise the most played
   const profile = buildProfile(data, idx);

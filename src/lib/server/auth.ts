@@ -88,7 +88,7 @@ export async function requireUser(req: Request): Promise<AuthUser> {
   const u = await getUser(req);
   if (!u) throw new HttpError(401, "Sign in required");
   if (!u.invited) {
-    throw new HttpError(403, `Pepper is invite-only. Ask the admin to add ${u.email ?? "your email"} to the guest list.`, "not_invited");
+    throw new HttpError(403, `Listening is invite-only. Ask the admin to add ${u.email ?? "your email"} to the guest list.`, "not_invited");
   }
   return u;
 }

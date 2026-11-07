@@ -57,9 +57,10 @@ export default function PlaylistPage() {
         art={<Collage images={tracks.slice(0, 4).map((t) => t.cover)} className="aspect-square w-full" />}
         meta={
           <>
-            <span className="font-bold">{p.ownerName}</span>
+            {!p.shared && <span className="font-bold">{p.ownerName}</span>}
             <span className="text-white/70">
-              • {tracks.length} song{tracks.length === 1 ? "" : "s"}
+              {!p.shared && "• "}
+              {tracks.length} song{tracks.length === 1 ? "" : "s"}
               {total > 0 && `, ${formatLongDuration(total)}`}
             </span>
           </>

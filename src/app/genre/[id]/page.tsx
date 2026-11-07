@@ -18,11 +18,11 @@ export default function GenrePage() {
   let tracks: CatalogTrack[] = [];
   const byPop = (a: CatalogTrack, b: CatalogTrack) => (pop?.[b.id]?.pop ?? 0) - (pop?.[a.id]?.pop ?? 0) || b.createdAt - a.createdAt;
   if (id === "new") {
-    name = "New on Pepper";
+    name = "Recently added";
     color = "#e8115b";
     tracks = catalog.tracks.slice(0, 50);
   } else if (id === "charts") {
-    name = "Top 50 on Pepper";
+    name = "Top 50";
     color = "#8d67ab";
     tracks = [...catalog.tracks].filter((t) => (pop?.[t.id]?.plays ?? 0) > 0).sort(byPop).slice(0, 50);
   } else {
