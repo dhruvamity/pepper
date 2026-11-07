@@ -38,6 +38,7 @@ const COOC_TTL_MS = 120_000;
 // older days only change through late reports.
 const DAILY_RECENT_TTL_MS = 60_000;
 const DAILY_PAST_TTL_MS = 600_000;
+const TRACK_TTL_MS = 10 * 60_000;
 
 function shardOf(id: string): number {
   return parseInt(fnv1a(id), 36) % SHARDS;
@@ -51,6 +52,8 @@ type Cache = {
   stats?: { at: number; data: Record<string, TrackStats> };
   cooc?: Map<string, { at: number; row: Record<string, number> | null }>;
   daily?: Map<string, { at: number; data: DailyStats }>;
+  /** Recently read track docs: starting a song needs one, and replays shouldn't cost a read. */
+  tracks?: Map<string, { at: number; track: Track | null }>;
   warnedIndex?: boolean;
 };
 
@@ -124,18 +127,29 @@ export class FirestoreRepo implements Repo {
       .map((json) => JSON.parse(json) as Playlist)
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     const snapshot = { version, tracks, artists, playlists };
-    if (current()) this.cache.catalog = { version, snapshot, checkedAt: now };
+    if (current()) {
+      // Another server changed the catalog: its track docs may have changed too.
+      if (c && c.version !== version) this.cache.tracks?.clear();
+      this.cache.catalog = { version, snapshot, checkedAt: now };
+    }
     return snapshot;
   }
 
   private invalidateCatalog() {
+    this.cache.tracks?.clear();
     this.cache.catalogGen = (this.cache.catalogGen ?? 0) + 1;
     if (this.cache.catalog) this.cache.catalog.checkedAt = 0;
   }
 
   async getTrack(id: string) {
+    const cache = (this.cache.tracks ??= new Map());
+    const hit = cache.get(id);
+    if (hit && Date.now() - hit.at < TRACK_TTL_MS) return hit.track ? structuredClone(hit.track) : null;
     const s = await this.db.collection("tracks").doc(id).get();
-    return s.exists ? (s.data() as Track) : null;
+    const track = s.exists ? (s.data() as Track) : null;
+    cache.set(id, { at: Date.now(), track });
+    if (cache.size > 4000) for (const k of [...cache.keys()].slice(0, cache.size - 4000)) cache.delete(k);
+    return track ? structuredClone(track) : null;
   }
 
   async saveTrack(track: Track) {

@@ -34,13 +34,20 @@ export const GET = route<Ctx>(async (_req, ctx) => {
     });
   }
 
-  const url = await p.presignGet(key, {
-    expiresIn: 7 * 24 * 3600,
-    stableWindow: 24 * 3600,
-    cacheControl: "public, max-age=604800, immutable",
-  });
-  return new Response(null, {
-    status: 302,
-    headers: { Location: url, "Cache-Control": "public, max-age=3600, s-maxage=3600" },
+  // Image keys contain a hash of the image, so a key's bytes never change. Serve the bytes from
+  // here with a year-long cache: Vercel's CDN then answers every later request for this image
+  // without touching this function or the bucket (each bucket download counts against
+  // Backblaze's free daily transactions), and browsers never refetch it.
+  const url = await p.presignGet(key, { expiresIn: 600 });
+  const upstream = await fetch(url);
+  if (!upstream.ok || !upstream.body) throw new HttpError(upstream.status === 404 ? 404 : 502, "Image unavailable");
+  const ext = key.split(".").pop()?.toLowerCase() ?? "";
+  return new Response(upstream.body, {
+    headers: {
+      "Content-Type": IMAGE_TYPES[ext] ?? upstream.headers.get("content-type") ?? "application/octet-stream",
+      ...(upstream.headers.get("content-length") ? { "Content-Length": upstream.headers.get("content-length")! } : {}),
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "CDN-Cache-Control": "public, max-age=31536000, immutable",
+    },
   });
 });

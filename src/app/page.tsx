@@ -150,9 +150,15 @@ function SectionView({ section, mixes }: { section: HomeSection; mixes: MixSumma
 }
 
 export default function HomePage() {
-  const { catalog, isLoading } = useCatalog();
+  const { catalog, isLoading, error: catalogError, refresh } = useCatalog();
   const { data: me } = useMe();
-  const { data, isLoading: homeLoading } = useSWR<{ sections: HomeSection[] }>("/api/home", fetcher, { revalidateOnFocus: false, dedupingInterval: 60_000 });
+  const {
+    data,
+    isLoading: homeLoading,
+    error: homeError,
+    mutate: reloadHome,
+  } = useSWR<{ sections: HomeSection[] }>("/api/home", fetcher, { revalidateOnFocus: false, dedupingInterval: 60_000 });
+  const loadError = (!catalog && catalogError) || (!data && homeError) ? ((catalogError ?? homeError) as Error) : null;
   const [hdr, setHdr] = useState<string | null>(null);
   const openProfile = useUI((s) => s.setProfileOpen);
   const sections = data?.sections ?? [];
@@ -178,6 +184,25 @@ export default function HomePage() {
               <div key={i} className="h-14 rounded bg-white/10 sm:h-16" />
             ))}
           </div>
+        )}
+
+        {loadError && !(isLoading || homeLoading) && (
+          <EmptyState
+            title="Couldn't load your music"
+            body={loadError.message || "Something went wrong on the server."}
+            action={
+              <button
+                type="button"
+                onClick={() => {
+                  void refresh();
+                  void reloadHome();
+                }}
+                className="rounded-full bg-white px-8 py-3 font-bold text-black hover:scale-105"
+              >
+                Try again
+              </button>
+            }
+          />
         )}
 
         {catalog && catalog.tracks.length === 0 && (

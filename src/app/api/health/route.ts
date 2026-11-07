@@ -41,7 +41,12 @@ export async function GET() {
       return { ok: false, ms: Date.now() - t, error: (err as Error).name + ": " + (err as Error).message.slice(0, 160) };
     }
   };
-  const [firestore, ...buckets] = await Promise.all([
+  const [signIn, firestore, ...buckets] = await Promise.all([
+    // Loads the same code that checks every signed-in request (it once failed on an old Node).
+    timed(async () => {
+      const { getAuth } = await import("firebase-admin/auth");
+      getAuth(firebaseAdminApp());
+    }),
     timed(async () => {
       const { getFirestore } = await import("firebase-admin/firestore");
       await getFirestore(firebaseAdminApp()).doc("catalog/meta").get();
@@ -49,9 +54,9 @@ export async function GET() {
     ...config.storage.s3.map((cfg) => timed(() => new S3Provider(cfg).ping())),
   ]);
   const storage = Object.fromEntries(config.storage.s3.map((cfg, i) => [`${cfg.id} (${cfg.bucket})`, buckets[i]]));
-  const ok = firestore.ok && buckets.every((b) => b.ok) && Object.values(settings).every((v) => v === "ok");
+  const ok = signIn.ok && firestore.ok && buckets.every((b) => b.ok) && Object.values(settings).every((v) => v === "ok");
   return Response.json(
-    { ok, backends: { db: config.db, auth: config.auth, storage: config.storage.kind }, settings, firestore, storage, region: env.VERCEL_REGION ?? null },
+    { ok, backends: { db: config.db, auth: config.auth, storage: config.storage.kind }, settings, signIn, firestore, storage, node: process.version, region: env.VERCEL_REGION ?? null },
     { status: ok ? 200 : 500, headers: { "Cache-Control": "no-store" } },
   );
 }
