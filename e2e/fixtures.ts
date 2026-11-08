@@ -44,13 +44,13 @@ export function tone(frequency: number) {
 export async function uploadSong(admin: Session, title: string, frequency: number, artist = "E2E Artist") {
   const bytes = tone(frequency), contentType = "audio/wav";
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const { trackId, duplicate, audio } = await api("/api/admin/uploads", admin, { audio: { sha256, size: bytes.length, ext: "wav", contentType } });
+  const { uploadId, trackId, duplicate, audio } = await api("/api/admin/uploads", admin, { audio: { sha256, size: bytes.length, ext: "wav", contentType } });
   if (!duplicate) {
     expect((await fetch(new URL(audio.upload.url, origin), { method: "PUT", headers: audio.upload.headers, body: bytes })).ok).toBeTruthy();
     await api("/api/admin/tracks", admin, { trackId, title, rawTitle: title, durationMs: 30000, artists: [artist], album: "E2E Album", genres: ["Pop"],
       audio: { provider: audio.provider, key: audio.key, contentType, size: bytes.length, sha256, originalName: title + ".wav" },
       lyrics: { plain: "First line\nSecond line", synced: [{ t: 0, text: "First line" }, { t: 10000, text: "Second line" }], source: "tag" },
-      enrich: { lyrics: false, artistImages: false },
+      enrich: { lyrics: false, artistImages: false }, uploadId,
     }, "POST", 201);
   }
   return trackId as string;

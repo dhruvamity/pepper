@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { requireAdmin } from "@/lib/server/auth";
 import { trackIdFromSha } from "@/lib/server/catalog";
 import { config } from "@/lib/server/env";
@@ -7,6 +8,7 @@ import { HttpError, json, readJson, route } from "@/lib/server/http";
 import { choosePlacement, providers } from "@/lib/server/storage";
 
 const body = z.object({
+  target: z.object({ kind: z.enum(["track", "artist"]), id: z.string().min(1).max(128).refine((id) => !id.includes("/")) }).optional(),
   audio: z
     .object({
     sha256: z.string().regex(/^[0-9a-f]{64}$/),
@@ -32,11 +34,16 @@ const body = z.object({
  * functions, and no bandwidth through this server. A song's audio and cover go to the same bucket.
  */
 export const POST = route(async (req) => {
-  await requireAdmin(req);
+  const admin = await requireAdmin(req);
   const input = body.parse(await readJson(req));
   if (!input.audio && !input.cover) throw new HttpError(400, "Nothing to upload");
   const db = await repo();
   const trackId = input.audio ? trackIdFromSha(input.audio.sha256) : undefined;
+  if (input.target?.kind === "artist" && input.audio) throw new HttpError(400, "Artist image uploads cannot include audio");
+  if (input.target?.kind === "artist" && input.cover?.purpose !== "artist") throw new HttpError(400, "Artist upload target requires artist artwork");
+  if (input.target?.kind === "track" && input.cover?.purpose === "artist") throw new HttpError(400, "Track upload target cannot use artist artwork");
+  if (input.target?.kind === "track" && trackId && input.target.id !== trackId) throw new HttpError(400, "Upload target does not match the audio file");
+  const targetRef = trackId ? { kind: "track" as const, id: trackId } : input.target;
   const existing = trackId ? await db.getTrack(trackId) : null;
   if (existing) {
     return json({ trackId, duplicate: true, existing: { title: existing.title, artists: existing.artists, album: existing.album } });
@@ -69,5 +76,13 @@ export const POST = route(async (req) => {
         : { provider: target.id, key, contentType: ct, upload: await target.presignPut(key, ct) };
     }
   }
-  return json({ trackId, duplicate: false, audio, cover, provider: { id: target.id, label: target.label } });
+  const uploadId = randomUUID().replace(/-/g, "").slice(0, 24);
+  const objects = [
+    ...(audio ? [{ provider: audio.provider, key: audio.key, size: input.audio!.size, contentType: audio.contentType }] : []),
+    ...(cover ? (Object.values(cover) as { provider: string; key: string; contentType: string; upload: unknown | null }[])
+      .filter((item) => item.upload)
+      .map((item) => ({ provider: item.provider, key: item.key, size: item.key.endsWith("-sm.webp") || item.key.endsWith("-sm.jpg") ? input.cover!.sm.size : input.cover!.lg.size, contentType: item.contentType })) : []),
+  ];
+  await db.saveUploadIntent({ id: uploadId, ownerUid: admin.uid, trackId, target: targetRef, createdAt: Date.now(), expiresAt: Date.now() + 24 * 3600_000, objects });
+  return json({ uploadId, trackId, duplicate: false, audio, cover, provider: { id: target.id, label: target.label } });
 });

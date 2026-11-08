@@ -15,10 +15,10 @@ export const GET = route<Ctx>(async (req, ctx) => {
 });
 
 export const PATCH = route<Ctx>(async (req, ctx) => {
-  await requireAdmin(req);
+  const admin = await requireAdmin(req);
   const { id } = await ctx.params;
   const patch = patchTrackSchema.parse(await readJson(req));
-  return json({ track: await updateTrack(id, patch) });
+  return json({ track: await updateTrack(id, patch, admin.uid) });
 });
 
 export const DELETE = route<Ctx>(async (req, ctx) => {

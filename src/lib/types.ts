@@ -163,6 +163,57 @@ export interface UserProfile {
   createdAt: number;
   lastSeenAt: number;
   onboarded: boolean;
+  /** Listening presence is private until the user enables it and selects contacts. */
+  activitySharing?: boolean;
+  activityVisibleTo?: string[];
+}
+
+export interface Connection {
+  id: string;
+  requesterUid: string;
+  otherUid: string;
+  status: "pending" | "accepted" | "declined";
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ListeningActivity {
+  uid: string;
+  name: string;
+  trackId: string;
+  playing: boolean;
+  positionMs: number;
+  updatedAt: number;
+  expiresAt: number;
+}
+
+export interface JamRequest {
+  id: string;
+  fromUid: string;
+  fromName: string;
+  toUid: string;
+  trackId?: string;
+  status: "pending" | "accepted" | "declined" | "expired";
+  createdAt: number;
+  expiresAt: number;
+  jamId?: string;
+}
+
+export interface UploadIntent {
+  id: string;
+  ownerUid: string;
+  trackId?: string;
+  target?: { kind: "track" | "artist"; id: string };
+  createdAt: number;
+  expiresAt: number;
+  objects: StoredObject[];
+}
+
+export interface PlaylistChange {
+  at: number;
+  actorUid: string;
+  actorName: string;
+  action: string;
 }
 
 export interface UserLibrary {
@@ -185,6 +236,12 @@ export interface Playlist {
   shared?: boolean;
   /** Where a shared playlist came from, e.g. "import:soft-romantic-hindi-songs-2026", so a re-import updates it. */
   source?: string;
+  /** Accepted collaborators may edit; only the owner can manage access or delete. */
+  collaborators?: { uid: string; name: string }[];
+  /** Denormalized for Firestore's array-contains collaborator lookup. */
+  collaboratorUids?: string[];
+  revision?: number;
+  history?: PlaylistChange[];
 }
 
 export type PlaySourceType =

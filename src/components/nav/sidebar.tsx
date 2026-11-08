@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Users } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useMe, usePlaylistActions } from "@/lib/client/me";
 import { usePlayer } from "@/lib/client/player/store";
@@ -32,6 +33,7 @@ export function Sidebar() {
         <NavLink href="/" label="Home" active={path === "/"} icon={<HomeIcon filled={path === "/"} />} />
         <NavLink href="/search" label="Search" active={path.startsWith("/search")} icon={<SearchIcon bold={path.startsWith("/search")} />} />
         <NavLink href="/library" label="Your Library" active={path.startsWith("/library")} icon={<LibraryIcon filled={path.startsWith("/library")} />} />
+        <NavLink href="/friends" label="Friends & Jams" active={path.startsWith("/friends")} icon={<Users size={20} />} />
       </nav>
       <div className="mt-6 px-4">
         <button

@@ -78,14 +78,14 @@ async function buildTracks(trackIds: string[], member: JamMember): Promise<JamTr
   });
 }
 
-export async function startJam(host: JamMember, input: z.infer<typeof startJamBody>) {
+export async function buildJamDocument(host: JamMember, input: z.infer<typeof startJamBody>, guest?: JamMember, id?: string): Promise<JamDocument> {
   const tracks = await buildTracks(input.track ? [input.track, ...input.queue] : input.queue, host);
   const track = tracks.shift() ?? null;
   const now = Date.now();
   const doc: JamDocument = {
-    id: randomUUID().replace(/-/g, "").slice(0, 24),
+    id: id ?? randomUUID().replace(/-/g, "").slice(0, 24),
     hostUid: host.uid,
-    members: [host],
+    members: guest ? [host, guest] : [host],
     playback: {
       track, playing: Boolean(track && input.playing), sequence: 0, reason: "play",
       anchoredAt: now, positionMs: Math.min(track?.durationMs ?? 0, input.positionMs),
@@ -102,6 +102,11 @@ export async function startJam(host: JamMember, input: z.infer<typeof startJamBo
     version: 1,
     expiresAt: now + JAM_LIFETIME,
   };
+  return doc;
+}
+
+export async function startJam(host: JamMember, input: z.infer<typeof startJamBody>) {
+  const doc = await buildJamDocument(host, input);
   await (await repo()).createJam(doc);
   return jamSnapshot(doc, host.uid);
 }

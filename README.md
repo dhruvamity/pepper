@@ -16,9 +16,13 @@ Open http://localhost:3000, enter a name and pick **Continue as admin**, then go
 1. **Firebase**: create a project, enable *Authentication → Google* and *Email/Password*, create a *Firestore* database, and copy the web config + a service-account key into `.env.local` (see `.env.example`). Add your email to `ADMIN_EMAILS`. Deploy the rules and indexes with `firebase deploy --only firestore --project <your-project-id>` (the rules deny all direct client access; the index powers each listener's play history).
 2. **Cloudflare R2** and/or **Backblaze B2**: create a private bucket plus an S3 API key, and fill in the `R2_*` / `B2_*` variables. More Backblaze buckets go in `B2_2_*`, `B2_3_*`, … (any number). Each upload goes to a bucket with room: `STORAGE_STRATEGY=fill-first` fills R2 first, then each B2 bucket in turn; `balance` picks the bucket with the most free space. Set each bucket's *Lifecycle Settings* to keep only the last version, so deleted songs free their space.
 3. **Bucket CORS** (browsers upload directly to the buckets and stream from them): run `npm run setup:cors -- https://your-domain` once, and again after adding a bucket. If a provider rejects it, allow your origin for `GET, HEAD, PUT` with all headers in that bucket's CORS settings.
-4. Deploy to Vercel (or any Node host) with the same environment variables. Add the domain to *Firebase Auth → Authorized domains*.
+4. Deploy to Vercel (or any Node host) with the same environment variables. Add the domain to *Firebase Auth → Authorized domains*. Set a random `CRON_SECRET` in Vercel; the daily job in `vercel.json` removes abandoned uploads, expired Jam rooms and requests, and stale listening activity.
 
 To keep Pepper to people you know, list their emails in `LISTENER_EMAILS` (or `@domain.com`); others who sign in see a "not on the guest list" page. Admin rights go to emails in `ADMIN_EMAILS` once verified (Google sign-in is verified automatically; email sign-ups get a verification link). To develop without touching production, run `firebase emulators:start --only auth,firestore --project demo-pepper` (the Firestore emulator needs Java 21) and set the emulator variables at the bottom of `.env.example`.
+
+## Friends, Jams and collaborative playlists
+
+Open **Friends & Jams** from the desktop sidebar or the mobile account menu. Share your Pepper ID to connect with another listener. Listening activity is off by default; turn it on and choose which accepted contacts may see the current song. Jam requests expire after 30 minutes. The recipient can accept or decline, and the requester can join the synchronized room after acceptance. Playlist owners can invite accepted contacts as editors; edits are logged, additive changes are transaction-safe, and replacing the full song order requires the current playlist revision.
 
 ## Import a music collection
 

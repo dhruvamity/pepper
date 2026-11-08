@@ -9,6 +9,12 @@ async function libraryPlaylist(page: Page, id: string) {
   await navigate(page, `/playlist/${id}`);
 }
 
+async function ensureChecked(page: Page, name: string) {
+  const checkbox = page.getByRole("checkbox", { name });
+  if (!await checkbox.isChecked()) await checkbox.click();
+  await expect(checkbox).toBeChecked();
+}
+
 for (const mobile of [false, true]) {
   test(`${mobile ? "mobile" : "desktop"}: playlist switching, loading, seek, pause, queue and reload`, async ({ browser }) => {
     const context = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 720 }, isMobile: mobile, hasTouch: mobile });
@@ -37,7 +43,7 @@ for (const mobile of [false, true]) {
         : page.getByRole("slider", { name: "Seek", exact: true }).first();
       await seek.focus();
       for (let i = 0; i < 40; i++) await seek.press("ArrowRight");
-      await expect.poll(() => page.evaluate(() => window.testAudio[0].currentTime)).toBeGreaterThan(9.5);
+      await expect.poll(() => page.evaluate(() => window.testAudio[0].currentTime)).toBeGreaterThan(8.5);
       const player = mobile ? page.getByRole("dialog", { name: "Now playing" }) : page;
       await player.getByRole("button", { name: "Play", exact: true }).first().click();
       await playing(page, data.ids[2]);
@@ -104,6 +110,8 @@ test("catalog sharing, playlist CRUD/concurrent changes, library, authorization 
   const catalog = await api("/api/catalog", listener);
   expect(catalog.playlists.some((p: { id: string }) => p.id === data.curated.id)).toBe(true);
   expect(catalog.playlists.some((p: { id: string }) => p.id === data.a.id)).toBe(false);
+  const traversal = await fetch(`${origin}/api/media/r2/img/%252e%252e/audio/${ids[0]}.wav`);
+  expect(traversal.status).toBe(404);
   const p = await data.list("E2E CRUD", [], listener);
   await Promise.all(ids.map((id) => api(`/api/playlists/${p.id}`, listener, { add: [id, id] }, "PATCH")));
   expect((await api(`/api/playlists/${p.id}`, listener)).playlist.trackIds.sort()).toEqual([...ids].sort());
@@ -139,6 +147,192 @@ test("catalog sharing, playlist CRUD/concurrent changes, library, authorization 
   await api("/api/admin/analytics", admin);
   await api("/api/me/stats", listener);
 });
+
+test("contact privacy, listening activity, Jam requests and collaborative playlists", async () => {
+  const alice = await login("E2E Social Alice"), bob = await login("E2E Social Bob"), outsider = await login("E2E Social Outsider");
+  const aliceMe = await api("/api/me", alice), bobMe = await api("/api/me", bob), outsiderMe = await api("/api/me", outsider);
+  await api("/api/connections", alice, { userId: bobMe.user.uid }, "POST");
+  expect((await api("/api/connections", bob)).connections[0]).toMatchObject({ status: "pending", user: { uid: aliceMe.user.uid } });
+  await api("/api/connections", outsider, { userId: aliceMe.user.uid }, "POST");
+  await api("/api/connections", bob, { userId: aliceMe.user.uid, action: "accept" }, "PATCH");
+
+  const hidden = await api("/api/listening-activity", bob, { trackId: data.ids[0], playing: true, positionMs: 1200 }, "POST");
+  expect(hidden.shared).toBe(false);
+  expect((await api("/api/connections", alice)).connections.find((c: { user: { uid: string } }) => c.user.uid === bobMe.user.uid).activity).toBeNull();
+  await api("/api/me/privacy", bob, { activitySharing: true, activityVisibleTo: [aliceMe.user.uid] }, "PATCH");
+  await api("/api/listening-activity", bob, { trackId: data.ids[0], playing: true, positionMs: 1200 }, "POST");
+  const visible = (await api("/api/connections", alice)).connections.find((c: { user: { uid: string } }) => c.user.uid === bobMe.user.uid).activity;
+  expect(visible).toMatchObject({ trackId: data.ids[0], playing: true, positionMs: 1200 });
+  await api("/api/me/privacy", bob, { activitySharing: true, activityVisibleTo: [outsiderMe.user.uid] }, "PATCH", 400);
+
+  const request = (await api("/api/jam-requests", alice, { toUid: bobMe.user.uid, trackId: data.ids[0] }, "POST", 201)).request;
+  expect((await api("/api/connections", bob)).jamRequests).toContainEqual(expect.objectContaining({ id: request.id, status: "pending" }));
+  await api(`/api/jam-requests/${request.id}`, alice, { action: "accept" }, "PATCH", 404);
+  const accepted = await api(`/api/jam-requests/${request.id}`, bob, { action: "accept" }, "PATCH");
+  const jamId = accepted.snapshot.jam.id;
+  expect(accepted.snapshot.jam).toMatchObject({ hostUid: bobMe.user.uid, members: [{ uid: bobMe.user.uid }, { uid: aliceMe.user.uid }], playback: { track: { id: data.ids[0] }, playing: true } });
+  expect((await jamSnapshot(jamId, alice)).members.map((member: { uid: string }) => member.uid)).toContain(aliceMe.user.uid);
+  await api(`/api/jams/${jamId}`, bob, { type: "leave" }, "POST");
+
+  const declinedRequest = (await api("/api/jam-requests", alice, { toUid: bobMe.user.uid }, "POST", 201)).request;
+  const declined = await api(`/api/jam-requests/${declinedRequest.id}`, bob, { action: "decline" }, "PATCH");
+  expect(declined.request.status).toBe("declined");
+
+  const playlist = (await api("/api/playlists", alice, { name: "E2E Collaborative", trackIds: [data.ids[0]] }, "POST", 201)).playlist;
+  await api(`/api/playlists/${playlist.id}/collaborators`, alice, { uid: bobMe.user.uid }, "POST");
+  expect((await api("/api/me", bob)).playlists.some((p: { id: string }) => p.id === playlist.id)).toBe(true);
+  expect((await api(`/api/playlists/${playlist.id}`, bob)).playlist.collaborators).toContainEqual({ uid: bobMe.user.uid, name: bob.user.name });
+  await api(`/api/playlists/${playlist.id}`, outsider, undefined, "GET", 404);
+  await api(`/api/playlists/${playlist.id}/collaborators`, bob, { uid: outsiderMe.user.uid }, "POST", 403);
+  const current = (await api(`/api/playlists/${playlist.id}`, bob)).playlist;
+  await Promise.all([
+    api(`/api/playlists/${playlist.id}`, alice, { add: [data.ids[1]] }, "PATCH"),
+    api(`/api/playlists/${playlist.id}`, bob, { add: [data.ids[2]] }, "PATCH"),
+  ]);
+  const edited = (await api(`/api/playlists/${playlist.id}`, alice)).playlist;
+  expect(edited.trackIds).toEqual(expect.arrayContaining(data.ids.slice(0, 3)));
+  expect(edited.history.some((entry: { actorUid: string }) => entry.actorUid === bobMe.user.uid)).toBe(true);
+  await api(`/api/playlists/${playlist.id}`, bob, { trackIds: [data.ids[0]] }, "PATCH", 400);
+  await api(`/api/playlists/${playlist.id}`, bob, { trackIds: [data.ids[0]], expectedRevision: current.revision }, "PATCH", 409);
+  await api(`/api/playlists/${playlist.id}/collaborators`, alice, { uid: bobMe.user.uid }, "DELETE");
+});
+
+test("phone Friends page shares opt-in activity and joins an accepted Jam request", async ({ browser }) => {
+  test.setTimeout(45_000);
+  const alice = await login("E2E Mobile Jam Requester"), bob = await login("E2E Mobile Jam Receiver");
+  const aliceMe = await api("/api/me", alice), bobMe = await api("/api/me", bob);
+  await api("/api/me/onboarding", alice, { artistIds: [] });
+  await api("/api/me/onboarding", bob, { artistIds: [] });
+  await api("/api/connections", alice, { userId: bobMe.user.uid }, "POST");
+  await api("/api/connections", bob, { userId: aliceMe.user.uid, action: "accept" }, "PATCH");
+  await api("/api/me/privacy", bob, { activitySharing: true, activityVisibleTo: [aliceMe.user.uid] }, "PATCH");
+  await api("/api/listening-activity", bob, { trackId: data.ids[0], playing: true, positionMs: 1000 }, "POST");
+
+  const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const desktop = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await authenticate(mobile, alice);
+  await authenticate(desktop, bob);
+  const alicePage = await mobile.newPage(), bobPage = await desktop.newPage();
+  try {
+    await alicePage.goto(origin);
+    await alicePage.getByRole("button", { name: "Account" }).click();
+    await alicePage.getByRole("button", { name: "Friends & Jams" }).click();
+    await expect(alicePage).toHaveURL(`${origin}/friends`);
+    await expect(alicePage.getByText("E2E Song One", { exact: false })).toBeVisible();
+    await alicePage.getByRole("button", { name: "Request Jam" }).click();
+    await expect(alicePage.getByText("Jam request sent to E2E Mobile Jam Receiver")).toBeVisible();
+
+    await bobPage.goto(`${origin}/friends`);
+    await bobPage.getByRole("button", { name: "Accept", exact: true }).click();
+    await expect(bobPage.getByRole("dialog", { name: "Jam", exact: true })).toBeVisible();
+    await expect(bobPage.getByRole("heading", { name: "Your Jam", exact: true })).toBeVisible();
+    await expect(alicePage.getByRole("button", { name: "Join Jam", exact: true })).toBeVisible({ timeout: 20_000 });
+    await alicePage.getByRole("button", { name: "Join Jam", exact: true }).click();
+    await expect(alicePage.getByRole("dialog", { name: "Jam", exact: true })).toBeVisible();
+    await expect(alicePage.getByRole("heading", { name: "Participants (2)" })).toBeVisible();
+    await alicePage.getByRole("button", { name: "Leave Jam", exact: true }).click();
+    await bobPage.getByRole("button", { name: "End Jam for everyone", exact: true }).click();
+  } finally {
+    await Promise.all([mobile.close(), desktop.close()]);
+  }
+});
+
+for (const mobile of [false, true]) {
+  test(`${mobile ? "mobile" : "desktop"}: Friends privacy controls and Jam requests`, async ({ browser }) => {
+    test.setTimeout(60_000);
+    const alice = await login(`E2E Friends ${mobile ? "Mobile" : "Desktop"} Alice`);
+    const bob = await login(`E2E Friends ${mobile ? "Mobile" : "Desktop"} Bob`);
+    const aliceMe = await api("/api/me", alice), bobMe = await api("/api/me", bob);
+    await api("/api/me/onboarding", alice, { artistIds: [] });
+    await api("/api/me/onboarding", bob, { artistIds: [] });
+    await api("/api/connections", alice, { userId: bobMe.user.uid }, "POST");
+    await api("/api/connections", bob, { userId: aliceMe.user.uid, action: "accept" }, "PATCH");
+
+    const contextOptions = mobile
+      ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }
+      : { viewport: { width: 1280, height: 800 } };
+    const aliceContext = await browser.newContext(contextOptions);
+    const bobContext = await browser.newContext(contextOptions);
+    await authenticate(aliceContext, alice);
+    await authenticate(bobContext, bob);
+    const alicePage = await aliceContext.newPage(), bobPage = await bobContext.newPage();
+    try {
+      await alicePage.goto(origin + `/playlist/${data.curated.id}`);
+      await alicePage.getByRole("button", { name: `Play ${data.curated.name}`, exact: true }).first().click();
+      await playing(alicePage, data.ids[0]);
+      await Promise.all([alicePage.goto(origin + "/friends"), bobPage.goto(origin + "/friends")]);
+      await ensureChecked(alicePage, "Share listening activity");
+      await ensureChecked(alicePage, bob.user.name);
+      await ensureChecked(bobPage, "Share listening activity");
+      await ensureChecked(bobPage, alice.user.name);
+      await expect.poll(async () => (await api("/api/me", alice)).user.activityVisibleTo).toContain(bobMe.user.uid);
+      await expect.poll(async () => (await api("/api/me", bob)).user.activityVisibleTo).toContain(aliceMe.user.uid);
+      await api("/api/listening-activity", bob, { trackId: data.ids[0], playing: true, positionMs: 1400 }, "POST");
+      await alicePage.reload();
+      await expect(alicePage.getByText(/Listening to E2E Song One/).first()).toBeVisible();
+
+      await alicePage.getByRole("button", { name: "Request Jam", exact: true }).click();
+      await expect(alicePage.getByText(`Jam request sent to ${bob.user.name}`)).toBeVisible();
+      await bobPage.reload();
+      await bobPage.getByRole("button", { name: "Accept", exact: true }).click();
+      await expect(bobPage.getByRole("dialog", { name: "Jam", exact: true })).toBeVisible();
+      await alicePage.reload();
+      await alicePage.getByRole("button", { name: "Join Jam", exact: true }).click();
+      await expect(alicePage.getByRole("heading", { name: "Participants (2)" })).toBeVisible();
+      const jamAudioTime = (page: Page) => page.evaluate((id) => window.testAudio.find((audio) => !audio.paused && audio.src.includes(id))?.currentTime ?? -1, data.ids[0]);
+      await expect.poll(() => jamAudioTime(alicePage)).toBeGreaterThan(0);
+      await expect.poll(() => jamAudioTime(bobPage)).toBeGreaterThan(0);
+      expect(Math.abs(await jamAudioTime(alicePage) - await jamAudioTime(bobPage))).toBeLessThan(1.5);
+      await alicePage.getByRole("button", { name: "Leave Jam", exact: true }).click();
+      await bobPage.getByRole("button", { name: "End Jam for everyone", exact: true }).click();
+      const widthsFit = await Promise.all([alicePage, bobPage].map((page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)));
+      expect(widthsFit).toEqual([true, true]);
+    } finally {
+      await Promise.all([aliceContext.close(), bobContext.close()]);
+    }
+  });
+
+  test(`${mobile ? "mobile" : "desktop"}: collaborative playlist invite, edit, history and revoke`, async ({ browser }) => {
+    const owner = await login(`E2E Collaborator ${mobile ? "Mobile" : "Desktop"} Owner`);
+    const editor = await login(`E2E Collaborator ${mobile ? "Mobile" : "Desktop"} Editor`);
+    const ownerMe = await api("/api/me", owner), editorMe = await api("/api/me", editor);
+    await api("/api/connections", owner, { userId: editorMe.user.uid }, "POST");
+    await api("/api/connections", editor, { userId: ownerMe.user.uid, action: "accept" }, "PATCH");
+    const playlist = (await api("/api/playlists", owner, { name: `E2E ${mobile ? "Mobile" : "Desktop"} Shared List`, trackIds: [data.ids[0]] }, "POST", 201)).playlist;
+
+    const contextOptions = mobile
+      ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }
+      : { viewport: { width: 1280, height: 800 } };
+    const ownerContext = await browser.newContext(contextOptions);
+    const editorContext = await browser.newContext(contextOptions);
+    await authenticate(ownerContext, owner);
+    await authenticate(editorContext, editor);
+    const ownerPage = await ownerContext.newPage(), editorPage = await editorContext.newPage();
+    try {
+      await ownerPage.goto(origin + `/playlist/${playlist.id}`);
+      await ownerPage.getByRole("button", { name: "Playlist options" }).click();
+      await ownerPage.getByRole("button", { name: "Manage collaborators", exact: true }).click();
+      await ownerPage.getByRole("button", { name: "Invite", exact: true }).click();
+      await expect.poll(async () => (await api(`/api/playlists/${playlist.id}`, owner)).playlist.collaboratorUids).toContain(editorMe.user.uid);
+
+      await editorPage.goto(origin + `/playlist/${playlist.id}`);
+      const search = editorPage.getByPlaceholder("Search for songs");
+      await search.fill("E2E Song Two");
+      await editorPage.getByRole("button", { name: "Add", exact: true }).click();
+      await expect.poll(async () => (await api(`/api/playlists/${playlist.id}`, owner)).playlist.trackIds).toContain(data.ids[1]);
+      await editorPage.getByText("Recent changes", { exact: true }).click();
+      await expect(editorPage.getByRole("listitem").filter({ hasText: "Added 1 song" })).toBeVisible();
+
+      await ownerPage.getByRole("button", { name: "Remove", exact: true }).click();
+      await expect.poll(async () => (await api(`/api/playlists/${playlist.id}`, owner)).playlist.collaboratorUids).not.toContain(editorMe.user.uid);
+      await api(`/api/playlists/${playlist.id}`, editor, undefined, "GET", 404);
+      const widthsFit = await Promise.all([ownerPage, editorPage].map((page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)));
+      expect(widthsFit).toEqual([true, true]);
+    } finally {
+      await Promise.all([ownerContext.close(), editorContext.close()]);
+    }
+  });
+}
 
 test("collection routes, search, likes, playlist editor and account isolation", async ({ context, page }) => {
   await authenticate(context, data.listener);

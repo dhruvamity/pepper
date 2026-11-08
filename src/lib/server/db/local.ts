@@ -10,7 +10,10 @@ import type { PlayUpdate } from "@/lib/analytics/score";
 import type {
   ArtistInfo,
   CatalogSnapshot,
+  Connection,
   DailyStats,
+  JamRequest,
+  ListeningActivity,
   Lyrics,
   PlayEvent,
   Playlist,
@@ -18,6 +21,7 @@ import type {
   StorageUsage,
   Track,
   TrackStats,
+  UploadIntent,
   UserLibrary,
   UserProfile,
   UserTaste,
@@ -40,6 +44,10 @@ interface State {
   cooc: Record<string, Record<string, number>>;
   daily: Record<string, DailyStats>;
   storage: Partial<Record<ProviderId, StorageUsage>>;
+  connections: Record<string, Connection>;
+  activities: Record<string, ListeningActivity>;
+  jamRequests: Record<string, JamRequest>;
+  uploadIntents: Record<string, UploadIntent>;
 }
 
 const MAX_PLAYS = 100_000;
@@ -60,6 +68,10 @@ function freshState(): State {
     cooc: {},
     daily: {},
     storage: {},
+    connections: {},
+    activities: {},
+    jamRequests: {},
+    uploadIntents: {},
   };
 }
 
@@ -229,7 +241,7 @@ export class LocalRepo implements Repo {
   async listPlaylists(uid: string) {
     this.fresh();
     return Object.values(this.state.playlists)
-      .filter((p) => p.ownerUid === uid)
+      .filter((p) => p.ownerUid === uid || p.collaborators?.some((c) => c.uid === uid))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
   async getPlaylist(id: string) {
@@ -255,6 +267,83 @@ export class LocalRepo implements Repo {
     this.persist(Boolean(wasShared));
   }
 
+  async listConnections(uid: string) {
+    this.fresh();
+    return Object.values(this.state.connections).filter((c) => c.requesterUid === uid || c.otherUid === uid);
+  }
+  async getConnection(id: string) {
+    this.fresh();
+    return this.state.connections[id] ?? null;
+  }
+  async updateConnection(id: string, change: (connection: Connection | null) => Connection | null) {
+    this.fresh();
+    const next = change(structuredClone(this.state.connections[id] ?? null));
+    if (next) this.state.connections[id] = next;
+    else delete this.state.connections[id];
+    this.persist(true);
+    return next;
+  }
+  async getActivity(uid: string) {
+    this.fresh();
+    return this.state.activities[uid] ?? null;
+  }
+  async getActivities(uids: string[]) {
+    this.fresh();
+    return [...new Set(uids)].map((uid) => this.state.activities[uid]).filter((a): a is ListeningActivity => Boolean(a));
+  }
+  async saveActivity(uid: string, activity: ListeningActivity | null) {
+    this.fresh();
+    if (activity) this.state.activities[uid] = structuredClone(activity);
+    else delete this.state.activities[uid];
+    this.persist();
+  }
+  async deleteExpiredActivities(now: number, limit: number) {
+    this.fresh();
+    const expired = Object.values(this.state.activities).filter((activity) => activity.expiresAt <= now).slice(0, limit);
+    for (const activity of expired) delete this.state.activities[activity.uid];
+    if (expired.length) this.persist(true);
+    return expired.length;
+  }
+  async listJamRequests(uid: string) {
+    this.fresh();
+    return Object.values(this.state.jamRequests).filter((r) => r.fromUid === uid || r.toUid === uid).sort((a, b) => b.createdAt - a.createdAt);
+  }
+  async saveJamRequest(request: JamRequest) {
+    this.fresh();
+    this.state.jamRequests[request.id] = structuredClone(request);
+    this.persist(true);
+  }
+  async resolveJamRequest(id: string, status: "accepted" | "declined", jam?: JamDocument) {
+    this.fresh();
+    const current = this.state.jamRequests[id];
+    if (!current) throw new Error("Jam request not found");
+    if (current.status !== "pending") return current;
+    if (current.expiresAt <= Date.now()) {
+      const expired = { ...current, status: "expired" as const };
+      this.state.jamRequests[id] = expired;
+      this.persist(true);
+      return expired;
+    }
+    if (status === "accepted" && jam) {
+      this.jams.set(jam.id, structuredClone(jam));
+      const accepted = { ...current, status, jamId: jam.id, expiresAt: jam.expiresAt };
+      this.state.jamRequests[id] = accepted;
+      this.persist(true);
+      return accepted;
+    }
+    const resolved = { ...current, status };
+    this.state.jamRequests[id] = resolved;
+    this.persist(true);
+    return resolved;
+  }
+  async deleteExpiredJamRequests(now: number, limit: number) {
+    this.fresh();
+    const expired = Object.values(this.state.jamRequests).filter((request) => request.expiresAt <= now).slice(0, limit);
+    for (const request of expired) delete this.state.jamRequests[request.id];
+    if (expired.length) this.persist(true);
+    return expired.length;
+  }
+
   async getJam(id: string) {
     return this.jams.get(id) ?? null;
   }
@@ -264,6 +353,41 @@ export class LocalRepo implements Repo {
       if (room.expiresAt <= Date.now() || room.closed) this.jams.delete(id);
     }
     this.jams.set(jam.id, jam);
+  }
+
+  async deleteExpiredJams(now: number, limit: number) {
+    let deleted = 0;
+    for (const [id, jam] of this.jams) {
+      if (deleted >= limit) break;
+      if (jam.expiresAt <= now || jam.closed) {
+        this.jams.delete(id);
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
+  async saveUploadIntent(intent: UploadIntent) {
+    this.fresh();
+    this.state.uploadIntents[intent.id] = structuredClone(intent);
+    this.persist(true);
+  }
+  async getUploadIntent(id: string) {
+    this.fresh();
+    return this.state.uploadIntents[id] ?? null;
+  }
+  async listActiveUploadIntents(now: number, limit: number) {
+    this.fresh();
+    return Object.values(this.state.uploadIntents).filter((i) => i.expiresAt > now).slice(0, limit);
+  }
+  async listExpiredUploadIntents(now: number, limit: number) {
+    this.fresh();
+    return Object.values(this.state.uploadIntents).filter((i) => i.expiresAt <= now).sort((a, b) => a.expiresAt - b.expiresAt).slice(0, limit);
+  }
+  async deleteUploadIntent(id: string) {
+    this.fresh();
+    delete this.state.uploadIntents[id];
+    this.persist(true);
   }
 
   async updateJam(id: string, change: (jam: JamDocument | null) => JamDocument) {

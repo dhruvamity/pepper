@@ -58,9 +58,9 @@ function EnrichBanner({ missing }: { missing: number }) {
 
 type Upload = { provider: ProviderId; key: string; contentType: string; upload: { url: string; method: string; headers: Record<string, string> } | null };
 
-async function uploadImage(asset: CoverAsset, purpose: "cover" | "artist") {
-  const init = await api<{ cover: Record<"sm" | "lg", Upload> }>("/api/admin/uploads", {
-    body: { cover: { hash: asset.hash, ext: asset.ext, purpose, sm: { size: asset.sm.size }, lg: { size: asset.lg.size } } },
+async function uploadImage(asset: CoverAsset, purpose: "cover" | "artist", targetId: string) {
+  const init = await api<{ uploadId: string; cover: Record<"sm" | "lg", Upload> }>("/api/admin/uploads", {
+    body: { target: { kind: purpose === "artist" ? "artist" : "track", id: targetId }, cover: { hash: asset.hash, ext: asset.ext, purpose, sm: { size: asset.sm.size }, lg: { size: asset.lg.size } } },
   });
   const newObjects: { provider: ProviderId; key: string; size: number; contentType: string }[] = [];
   for (const size of ["sm", "lg"] as const) {
@@ -71,7 +71,7 @@ async function uploadImage(asset: CoverAsset, purpose: "cover" | "artist") {
     }
   }
   const obj = (s: "sm" | "lg") => ({ provider: init.cover[s].provider, key: init.cover[s].key, size: asset[s].size, contentType: init.cover[s].contentType });
-  return { image: { sm: obj("sm"), lg: obj("lg"), color: asset.color }, newObjects };
+  return { uploadId: init.uploadId, image: { sm: obj("sm"), lg: obj("lg"), color: asset.color }, newObjects };
 }
 
 function lyricsToText(l: Lyrics | null): string {
@@ -135,8 +135,8 @@ function Editor({ id, onClose }: { id: string; onClose: () => void }) {
     try {
       let coverPatch = {};
       if (cover) {
-        const up = await uploadImage(cover, "cover");
-        coverPatch = { cover: up.image, newObjects: up.newObjects };
+        const up = await uploadImage(cover, "cover", id);
+        coverPatch = { uploadId: up.uploadId, cover: up.image, newObjects: up.newObjects };
       }
       const lyricsPatch = lyrics !== origLyrics ? { lyrics: lyrics.trim() ? lyricsFromText(lyrics) : null } : {};
       await api(`/api/admin/tracks/${id}`, { method: "PATCH", body: { ...cleanMeta(meta), ...coverPatch, ...lyricsPatch } });
@@ -321,8 +321,8 @@ function LibraryInner() {
                       const f = e.target.files?.[0];
                       if (!f) return;
                       try {
-                        const up = await uploadImage(await processCover(f), "artist");
-                        await api(`/api/admin/artists/${a.id}`, { method: "PATCH", body: { image: up.image, newObjects: up.newObjects } });
+                        const up = await uploadImage(await processCover(f), "artist", a.id);
+                        await api(`/api/admin/artists/${a.id}`, { method: "PATCH", body: { uploadId: up.uploadId, image: up.image, newObjects: up.newObjects } });
                         await mutate("/api/catalog");
                         toast("Artist photo updated");
                       } catch (err) {

@@ -47,3 +47,7 @@ next-env.d.ts
 # Firebase emulator logs
 firebase-debug.log*
 firestore-debug.log*
+
+# Claude Agent Context & History (Ignored to protect secrets & session data)
+.claude-context/
+claude-context/

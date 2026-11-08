@@ -16,7 +16,10 @@ import type {
   ArtistInfo,
   CatalogSnapshot,
   CatalogTrack,
+  Connection,
   DailyStats,
+  JamRequest,
+  ListeningActivity,
   Lyrics,
   PlayEvent,
   Playlist,
@@ -24,6 +27,7 @@ import type {
   StorageUsage,
   Track,
   TrackStats,
+  UploadIntent,
   UserLibrary,
   UserProfile,
   UserTaste,
@@ -330,8 +334,13 @@ export class FirestoreRepo implements Repo {
     if (kind === "likes" && this.cache.stats) this.cache.stats.at = 0;
   }
   async listPlaylists(uid: string) {
-    const q = await this.db.collection("playlists").where("ownerUid", "==", uid).get();
-    return q.docs.map((d) => d.data() as Playlist).sort((a, b) => b.updatedAt - a.updatedAt);
+    const [owned, collaborated] = await Promise.all([
+      this.db.collection("playlists").where("ownerUid", "==", uid).get(),
+      this.db.collection("playlists").where("collaboratorUids", "array-contains", uid).get(),
+    ]);
+    const playlists = new Map<string, Playlist>();
+    for (const d of [...owned.docs, ...collaborated.docs]) playlists.set(d.id, d.data() as Playlist);
+    return [...playlists.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
   async getPlaylist(id: string) {
     const s = await this.db.collection("playlists").doc(id).get();
@@ -380,6 +389,95 @@ export class FirestoreRepo implements Repo {
     this.invalidateCatalog();
   }
 
+  async listConnections(uid: string) {
+    const [requested, received] = await Promise.all([
+      this.db.collection("connections").where("requesterUid", "==", uid).get(),
+      this.db.collection("connections").where("otherUid", "==", uid).get(),
+    ]);
+    const rows = new Map<string, Connection>();
+    for (const d of [...requested.docs, ...received.docs]) rows.set(d.id, d.data() as Connection);
+    return [...rows.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+  async getConnection(id: string) {
+    const snap = await this.db.collection("connections").doc(id).get();
+    return (snap.data() as Connection | undefined) ?? null;
+  }
+  async updateConnection(id: string, change: (connection: Connection | null) => Connection | null) {
+    const ref = this.db.collection("connections").doc(id);
+    return this.db.runTransaction(async (tx) => {
+      const current = ((await tx.get(ref)).data() as Connection | undefined) ?? null;
+      const next = change(current);
+      if (next) tx.set(ref, next);
+      else if (current) tx.delete(ref);
+      return next;
+    });
+  }
+  async getActivity(uid: string) {
+    const snap = await this.db.collection("activities").doc(uid).get();
+    return (snap.data() as ListeningActivity | undefined) ?? null;
+  }
+  async getActivities(uids: string[]) {
+    const unique = [...new Set(uids)].slice(0, 100);
+    if (!unique.length) return [];
+    const snaps = await this.db.getAll(...unique.map((uid) => this.db.collection("activities").doc(uid)));
+    return snaps.map((s) => s.data() as ListeningActivity | undefined).filter((a): a is ListeningActivity => Boolean(a));
+  }
+  async saveActivity(uid: string, activity: ListeningActivity | null) {
+    const ref = this.db.collection("activities").doc(uid);
+    if (activity) await ref.set(activity);
+    else await ref.delete();
+  }
+  async deleteExpiredActivities(now: number, limit: number) {
+    const expired = await this.db.collection("activities").where("expiresAt", "<=", now).limit(limit).get();
+    if (!expired.size) return 0;
+    const batch = this.db.batch();
+    for (const doc of expired.docs) batch.delete(doc.ref);
+    await batch.commit();
+    return expired.size;
+  }
+  async listJamRequests(uid: string) {
+    const [sent, received] = await Promise.all([
+      this.db.collection("jamRequests").where("fromUid", "==", uid).get(),
+      this.db.collection("jamRequests").where("toUid", "==", uid).get(),
+    ]);
+    const rows = new Map<string, JamRequest>();
+    for (const d of [...sent.docs, ...received.docs]) rows.set(d.id, d.data() as JamRequest);
+    return [...rows.values()].sort((a, b) => b.createdAt - a.createdAt);
+  }
+  async saveJamRequest(request: JamRequest) {
+    await this.db.collection("jamRequests").doc(request.id).create(request);
+  }
+  async resolveJamRequest(id: string, status: "accepted" | "declined", jam?: JamDocument) {
+    const ref = this.db.collection("jamRequests").doc(id);
+    return this.db.runTransaction(async (tx) => {
+      const current = ((await tx.get(ref)).data() as JamRequest | undefined) ?? null;
+      if (!current) throw new Error("Jam request not found");
+      if (current.status !== "pending") return current;
+      if (current.expiresAt <= Date.now()) {
+        const expired = { ...current, status: "expired" as const };
+        tx.set(ref, expired);
+        return expired;
+      }
+      if (status === "accepted" && jam) {
+        tx.create(this.jam(jam.id), jam);
+        const accepted = { ...current, status, jamId: jam.id, expiresAt: jam.expiresAt };
+        tx.set(ref, accepted);
+        return accepted;
+      }
+      const resolved = { ...current, status };
+      tx.set(ref, resolved);
+      return resolved;
+    });
+  }
+  async deleteExpiredJamRequests(now: number, limit: number) {
+    const expired = await this.db.collection("jamRequests").where("expiresAt", "<=", now).limit(limit).get();
+    if (!expired.size) return 0;
+    const batch = this.db.batch();
+    for (const doc of expired.docs) batch.delete(doc.ref);
+    await batch.commit();
+    return expired.size;
+  }
+
   private jam(id: string) {
     return this.db.collection("jams").doc(id);
   }
@@ -407,6 +505,34 @@ export class FirestoreRepo implements Repo {
 
   watchJam(id: string, emit: (jam: JamDocument | null) => void, fail: (error: Error) => void) {
     return this.jam(id).onSnapshot((snap) => emit((snap.data() as JamDocument | undefined) ?? null), fail);
+  }
+
+  async deleteExpiredJams(now: number, limit: number) {
+    const expired = await this.db.collection("jams").where("expiresAt", "<=", now).limit(limit).get();
+    if (!expired.size) return 0;
+    const batch = this.db.batch();
+    for (const doc of expired.docs) batch.delete(doc.ref);
+    await batch.commit();
+    return expired.size;
+  }
+
+  async saveUploadIntent(intent: UploadIntent) {
+    await this.db.collection("uploadIntents").doc(intent.id).set(intent);
+  }
+  async getUploadIntent(id: string) {
+    const snap = await this.db.collection("uploadIntents").doc(id).get();
+    return (snap.data() as UploadIntent | undefined) ?? null;
+  }
+  async listActiveUploadIntents(now: number, limit: number) {
+    const active = await this.db.collection("uploadIntents").where("expiresAt", ">", now).limit(limit).get();
+    return active.docs.map((d) => d.data() as UploadIntent);
+  }
+  async listExpiredUploadIntents(now: number, limit: number) {
+    const expired = await this.db.collection("uploadIntents").where("expiresAt", "<=", now).limit(limit).get();
+    return expired.docs.map((d) => d.data() as UploadIntent);
+  }
+  async deleteUploadIntent(id: string) {
+    await this.db.collection("uploadIntents").doc(id).delete();
   }
 
   // ---------------------------------------------------------------- analytics

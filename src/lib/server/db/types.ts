@@ -4,10 +4,14 @@ import type {
   ArtistInfo,
   CatalogSnapshot,
   CatalogTrack,
+  Connection,
   DailyStats,
+  JamRequest,
+  ListeningActivity,
   Lyrics,
   PlayEvent,
   Playlist,
+  UploadIntent,
   ProviderId,
   StorageUsage,
   Track,
@@ -60,11 +64,32 @@ export interface Repo {
   updatePlaylist(id: string, change: (playlist: Playlist | null) => Playlist): Promise<Playlist>;
   deletePlaylist(id: string, shared?: boolean): Promise<void>;
 
+  // Private social graph and opt-in listening presence
+  listConnections(uid: string): Promise<Connection[]>;
+  getConnection(id: string): Promise<Connection | null>;
+  updateConnection(id: string, change: (connection: Connection | null) => Connection | null): Promise<Connection | null>;
+  getActivity(uid: string): Promise<ListeningActivity | null>;
+  getActivities(uids: string[]): Promise<ListeningActivity[]>;
+  saveActivity(uid: string, activity: ListeningActivity | null): Promise<void>;
+  deleteExpiredActivities(now: number, limit: number): Promise<number>;
+  listJamRequests(uid: string): Promise<JamRequest[]>;
+  saveJamRequest(request: JamRequest): Promise<void>;
+  resolveJamRequest(id: string, status: "accepted" | "declined", jam?: JamDocument): Promise<JamRequest>;
+  deleteExpiredJamRequests(now: number, limit: number): Promise<number>;
+
   // Live listening rooms
   getJam(id: string): Promise<JamDocument | null>;
   createJam(jam: JamDocument): Promise<void>;
   updateJam(id: string, change: (jam: JamDocument | null) => JamDocument): Promise<JamDocument>;
   watchJam(id: string, emit: (jam: JamDocument | null) => void, fail: (error: Error) => void): () => void;
+  deleteExpiredJams(now: number, limit: number): Promise<number>;
+
+  // Admin uploads that have received presigned URLs but not yet become catalog tracks
+  saveUploadIntent(intent: UploadIntent): Promise<void>;
+  getUploadIntent(id: string): Promise<UploadIntent | null>;
+  listActiveUploadIntents(now: number, limit: number): Promise<UploadIntent[]>;
+  listExpiredUploadIntents(now: number, limit: number): Promise<UploadIntent[]>;
+  deleteUploadIntent(id: string): Promise<void>;
 
   // Analytics
   recordPlay(event: PlayEvent, update: PlayUpdate): Promise<void>;

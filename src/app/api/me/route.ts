@@ -17,6 +17,8 @@ async function sync(req: Request) {
     createdAt: existing?.createdAt ?? now,
     lastSeenAt: now,
     onboarded: existing?.onboarded ?? false,
+    activitySharing: existing?.activitySharing ?? false,
+    activityVisibleTo: existing?.activityVisibleTo ?? [],
   };
   // Only write when something changed or once an hour, to save quota.
   if (!existing || now - existing.lastSeenAt > 3_600_000 || existing.name !== profile.name || existing.photoURL !== profile.photoURL) {

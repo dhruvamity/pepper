@@ -68,6 +68,7 @@ export const metadataSchema = z.object({
 });
 
 export const createTrackSchema = metadataSchema.extend({
+  uploadId: z.string().regex(/^[a-f0-9]{24}$/).optional(),
   trackId: z.string().regex(/^t[0-9a-f]{15}$/),
   rawTitle: z.string().max(500),
   durationMs: z.number().int().positive().max(6 * 3600 * 1000),
@@ -91,6 +92,7 @@ export const createTrackSchema = metadataSchema.extend({
 export type CreateTrackInput = z.infer<typeof createTrackSchema>;
 
 export const patchTrackSchema = metadataSchema.partial().extend({
+  uploadId: z.string().regex(/^[a-f0-9]{24}$/).optional(),
   cover: z.object({ sm: objectSchema, lg: objectSchema, color: z.string().regex(/^#[0-9a-f]{6}$/i) }).optional(),
   lyrics: lyricsSchema.nullable().optional(),
   newObjects: z.array(objectSchema).max(4).default([]),
@@ -230,6 +232,13 @@ export function assembleTrack(input: TrackFields, catalog: CatalogSnapshot, uplo
 
 export async function createTrack(input: CreateTrackInput, uploadedBy: string): Promise<Track> {
   const db = await repo();
+  const intent = input.uploadId ? await db.getUploadIntent(input.uploadId) : null;
+  if (input.uploadId && (!intent || intent.ownerUid !== uploadedBy || intent.trackId !== input.trackId)) throw new HttpError(403, "Upload session is invalid or expired");
+  if (intent && intent.target && (intent.target.kind !== "track" || intent.target.id !== input.trackId)) throw new HttpError(400, "Upload session target does not match the song");
+  if (intent) {
+    const supplied = new Set([input.audio, ...input.newObjects].map((o) => `${o.provider}:${o.key}`));
+    if (intent.objects.some((o) => !supplied.has(`${o.provider}:${o.key}`))) throw new HttpError(400, "Upload session objects do not match this song");
+  }
   if (trackIdFromSha(input.audio.sha256) !== input.trackId) throw new HttpError(400, "Track id does not match the audio hash");
   if (!input.audio.key.startsWith(`audio/${input.trackId}.`)) throw new HttpError(400, "Unexpected audio key");
   if (input.cover && (!input.cover.sm.key.startsWith("img/") || !input.cover.lg.key.startsWith("img/"))) {
@@ -252,14 +261,21 @@ export async function createTrack(input: CreateTrackInput, uploadedBy: string): 
   for (const o of created) await db.addStorageUsage(o.provider, o.size, 1);
 
   const newArtists = await ensureArtists(albumArtist ? [...artists, albumArtist] : artists, catalog);
+  if (intent) await db.deleteUploadIntent(intent.id);
   scheduleEnrichment(track, newArtists, input.enrich.lyrics, input.enrich.artistImages);
   return track;
 }
 
-export async function updateTrack(id: string, patch: z.infer<typeof patchTrackSchema>): Promise<Track> {
+export async function updateTrack(id: string, patch: z.infer<typeof patchTrackSchema>, uploadedBy?: string): Promise<Track> {
   const db = await repo();
   const cur = await db.getTrack(id);
   if (!cur) throw new HttpError(404, "Track not found");
+  const intent = patch.uploadId ? await db.getUploadIntent(patch.uploadId) : null;
+  if (patch.uploadId && (!intent || intent.ownerUid !== uploadedBy)) throw new HttpError(403, "Upload session is invalid or expired");
+  if (intent && intent.target && (intent.target.kind !== "track" || intent.target.id !== id)) throw new HttpError(400, "Upload session target does not match this song");
+  if (intent && intent.objects.some((o) => !patch.newObjects.some((candidate) => candidate.provider === o.provider && candidate.key === o.key))) {
+    throw new HttpError(400, "Upload session objects do not match this song");
+  }
   for (const o of patch.newObjects) await verifyObject(o);
   const catalog = await db.getCatalog();
   const artists = patch.artists ? resolveArtists(patch.artists, catalog) : cur.artists;
@@ -269,7 +285,7 @@ export async function updateTrack(id: string, patch: z.infer<typeof patchTrackSc
   const owner = albumArtist ?? artists[0];
   const next: Track = {
     ...cur,
-    ...Object.fromEntries(Object.entries(patch).filter(([k, v]) => v !== undefined && !["cover", "lyrics", "newObjects", "artists", "albumArtist", "album"].includes(k))),
+    ...Object.fromEntries(Object.entries(patch).filter(([k, v]) => v !== undefined && !["uploadId", "cover", "lyrics", "newObjects", "artists", "albumArtist", "album"].includes(k))),
     artists,
     albumArtist,
     album: { id: albumIdFor(owner.name, albumTitle), title: albumTitle },
@@ -282,6 +298,7 @@ export async function updateTrack(id: string, patch: z.infer<typeof patchTrackSc
   }
   await db.saveTrack(next);
   for (const o of patch.newObjects) await db.addStorageUsage(o.provider, o.size, 1);
+  if (intent) await db.deleteUploadIntent(intent.id);
   if (patch.cover && cur.cover) await deleteImagesIfUnused(cur.cover, id);
   await ensureArtists(albumArtist ? [...artists, albumArtist] : artists, catalog);
   return next;

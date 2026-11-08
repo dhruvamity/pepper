@@ -15,8 +15,13 @@ const IMAGE_TYPES: Record<string, string> = { webp: "image/webp", jpg: "image/jp
  */
 export const GET = route<Ctx>(async (_req, ctx) => {
   const { provider: pid, key: parts } = await ctx.params;
-  const key = parts.map(decodeURIComponent).join("/");
-  if (!key.startsWith("img/")) throw new HttpError(404, "Not found");
+  // Next has already decoded route params. Decode them again and `img/../audio/...`
+  // can pass this prefix check while LocalProvider.resolve normalizes it to an audio key.
+  if (
+    parts.length !== 3 || parts[0] !== "img" || !["covers", "artists"].includes(parts[1]) ||
+    parts.some((part) => !part || part === "." || part === ".." || /[\\/\0]/.test(part))
+  ) throw new HttpError(404, "Not found");
+  const key = parts.join("/");
   const p = provider(pid);
   if (!p) throw new HttpError(404, "Unknown provider");
 

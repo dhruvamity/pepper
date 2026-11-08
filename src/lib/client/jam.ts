@@ -6,6 +6,7 @@ import type { JamAction } from "@/lib/server/jam";
 import { ApiError, api, getToken } from "./api";
 import { setJamControls, usePlayer } from "./player/store";
 import { toast } from "./toast";
+import type { JamRequest } from "@/lib/types";
 
 type Mode = "remote" | "in-person";
 type Connection = "connecting" | "live" | "reconnecting";
@@ -308,6 +309,24 @@ export function startListeningJam(ids?: string[]) {
 
 export function joinListeningJam(id: string, mode: Mode) {
   return enter(`/api/jams/${id}`, { type: "join" }, mode);
+}
+
+export function requestListeningJam(toUid: string) {
+  if (roomId) throw new Error("Leave your current Jam before requesting another one");
+  const trackId = usePlayer.getState().currentId;
+  return api<{ request: JamRequest }>("/api/jam-requests", { body: { toUid, ...(trackId ? { trackId } : {}) } });
+}
+
+export async function respondToJamRequest(id: string, action: "accept" | "decline") {
+  if (action === "accept" && roomId) throw new Error("Leave your current Jam before accepting another one");
+  const sent = now();
+  const result = await api<{ request: JamRequest; snapshot: JamSnapshot | null }>(`/api/jam-requests/${id}`, { method: "PATCH", body: { action } });
+  if (action === "accept" && result.snapshot?.jam) {
+    sampleClock(result.snapshot.serverTime, sent);
+    connect(result.snapshot.jam.id, "remote", result.snapshot);
+    setJamOpen(true);
+  }
+  return result;
 }
 
 export function sendJamAction(action: JamAction): Promise<JamSnapshot | undefined> {

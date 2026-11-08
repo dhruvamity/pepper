@@ -12,6 +12,7 @@ import { ProfileSheet } from "./nav/profile-sheet";
 import { ScrollCtx } from "./nav/scroll";
 import { Sidebar } from "./nav/sidebar";
 import { PlayerEngine } from "./player/engine";
+import { ListeningActivityPublisher } from "./player/listening-activity";
 import { JamPanel } from "./player/jam-panel";
 import { MiniPlayer } from "./player/mini-player";
 import { NowPlaying } from "./player/now-playing";
@@ -120,6 +121,7 @@ function SignedIn({ children, bare, path }: { children: React.ReactNode; bare: b
       <ProfileSheet />
       <Toasts />
       <PlayerEngine />
+      <ListeningActivityPublisher />
       <JamPanel />
     </div>
   );

@@ -105,7 +105,7 @@ export function usePlaylistActions() {
     return playlist;
   }
 
-  async function updatePlaylist(id: string, patch: { name?: string; description?: string; add?: string[]; remove?: string[]; trackIds?: string[] }) {
+  async function updatePlaylist(id: string, patch: { name?: string; description?: string; add?: string[]; remove?: string[]; trackIds?: string[]; expectedRevision?: number }) {
     const { playlist } = await api<{ playlist: Playlist }>(`/api/playlists/${id}`, { method: "PATCH", body: patch });
     await mutate<MeResponse>(
       "/api/me",

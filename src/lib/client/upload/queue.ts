@@ -137,6 +137,7 @@ async function prepare(id: string, sideLrc: File | undefined, sideImg: File | un
 }
 
 interface InitResponse {
+  uploadId: string;
   trackId: string;
   duplicate: boolean;
   existing?: { title: string };
@@ -219,6 +220,7 @@ export async function upload(id: string, onUploaded: () => void) {
           features: it.features ?? undefined,
           lyrics: it.lyrics,
           enrich: { lyrics: q.enrichLyrics, artistImages: q.enrichImages },
+          uploadId: init.uploadId,
           newObjects,
         },
       });
