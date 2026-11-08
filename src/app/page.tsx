@@ -10,8 +10,40 @@ import { fetcher } from "@/lib/client/api";
 import { useCatalog } from "@/lib/client/catalog";
 import { useMe } from "@/lib/client/me";
 import { useUI } from "@/lib/client/ui";
-import type { HomeSection, MixSummary } from "@/lib/types";
+import { homeExcludedPlaylist } from "@/lib/home-exclusions";
+import type { HomeSection, MixSummary, Playlist } from "@/lib/types";
 import { greeting, shade } from "@/lib/util";
+
+function filterCachedHomeSections(sections: HomeSection[], playlists: Iterable<Playlist> | undefined, catalog: ReturnType<typeof useCatalog>["catalog"]) {
+  const sleepPlaylist = homeExcludedPlaylist(playlists);
+  if (!sleepPlaylist?.trackIds.length || !catalog) return sections;
+  const excluded = new Set(sleepPlaylist.trackIds);
+
+  return sections.flatMap((section) => {
+    if (section.kind === "tracks") {
+      const items = (section.items as string[]).filter((id) => !excluded.has(id));
+      return items.length ? [{ ...section, items }] : [];
+    }
+    if (section.kind === "mixes") {
+      const items = (section.items as MixSummary[]).flatMap((mix) => {
+        const trackIds = mix.trackIds.filter((id) => !excluded.has(id));
+        if (!trackIds.length) return [];
+        const coverTrackIds = mix.coverTrackIds.filter((id) => !excluded.has(id));
+        return [{ ...mix, trackIds, coverTrackIds: coverTrackIds.length ? coverTrackIds : trackIds.slice(0, 4) }];
+      });
+      return items.length ? [{ ...section, items }] : [];
+    }
+    if (section.kind === "albums") {
+      const items = (section.items as string[]).filter((id) => catalog.albums.get(id)?.trackIds.some((trackId) => !excluded.has(trackId)));
+      return items.length ? [{ ...section, items }] : [];
+    }
+    if (section.kind === "artists") {
+      const items = (section.items as string[]).filter((id) => catalog.artists.get(id)?.trackIds.some((trackId) => !excluded.has(trackId)));
+      return items.length ? [{ ...section, items }] : [];
+    }
+    return [section];
+  });
+}
 
 function SectionView({ section }: { section: HomeSection }) {
   const { catalog } = useCatalog();
@@ -96,7 +128,7 @@ export default function HomePage() {
   } = useSWR<{ sections: HomeSection[] }>("/api/home", fetcher, { refreshInterval: 60_000, dedupingInterval: 10_000 });
   const loadError = (!catalog && catalogError) || (!data && homeError) ? ((catalogError ?? homeError) as Error) : null;
   const openProfile = useUI((s) => s.setProfileOpen);
-  const sections = data?.sections ?? [];
+  const sections = filterCachedHomeSections(data?.sections ?? [], catalog?.playlists.values(), catalog);
 
   return (
     <div className="relative">

@@ -1,5 +1,6 @@
 /** Home feed and Daily Mix generation on top of the recommender. */
 import { decayed, TREND_HALF_LIFE } from "../analytics/score";
+import { homeExcludedPlaylist } from "../home-exclusions";
 import type { HomeSection, MixSummary, Playlist } from "../types";
 import { genreKey, uniqueBy } from "../util";
 import { buildIndex, buildProfile, recommend, trending, type RecData } from "./engine";
@@ -11,6 +12,37 @@ interface Cluster {
   artists: string[];
   genres: TokenWeights;
   weight: number;
+}
+
+function homeDataWithoutSleepPlaylistTracks(data: RecData) {
+  const sleepPlaylist = homeExcludedPlaylist(data.playlists);
+  if (!sleepPlaylist?.trackIds.length) return { data, sleepPlaylist };
+
+  const excluded = new Set(sleepPlaylist.trackIds);
+  const withoutExcluded = <T,>(record: Record<string, T>) =>
+    Object.fromEntries(Object.entries(record).filter(([id]) => !excluded.has(id))) as Record<string, T>;
+
+  return {
+    sleepPlaylist,
+    data: {
+      ...data,
+      tracks: data.tracks.filter((track) => !excluded.has(track.id)),
+      stats: withoutExcluded(data.stats),
+      taste: {
+        ...data.taste,
+        tracks: withoutExcluded(data.taste.tracks),
+        last: withoutExcluded(data.taste.last),
+        plays: withoutExcluded(data.taste.plays),
+        skips: withoutExcluded(data.taste.skips),
+      },
+      likes: withoutExcluded(data.likes),
+      cooc: Object.fromEntries(
+        Object.entries(data.cooc)
+          .filter(([id]) => !excluded.has(id))
+          .map(([id, row]) => [id, withoutExcluded(row)]),
+      ),
+    },
+  };
 }
 
 /** Cluster the user's favourite artists by genre and build one mix per cluster. */
@@ -137,17 +169,23 @@ export function rankSharedPlaylists(data: RecData, profile: ReturnType<typeof bu
 }
 
 export function buildHome({ data, userName, savedPlaylists }: HomeInput): HomeSection[] {
-  const idx = buildIndex(data.tracks, data.artists, data.playlists);
+  const { data: homeData, sleepPlaylist } = homeDataWithoutSleepPlaylistTracks(data);
+  const idx = buildIndex(homeData.tracks, homeData.artists, homeData.playlists);
   const sections: HomeSection[] = [];
-  const mixes = buildMixes(data, 4);
+  const mixes = buildMixes(homeData, 4);
 
   // Recently played (most recent first)
-  const recent = Object.entries(data.taste.last)
+  const recent = Object.entries(homeData.taste.last)
     .filter(([id]) => idx.byId.has(id))
     .sort((a, b) => b[1] - a[1])
     .map(([id]) => id);
 
-  const shared = rankSharedPlaylists(data, buildProfile(data, idx), savedPlaylists);
+  const shared = rankSharedPlaylists(homeData, buildProfile(homeData, idx), savedPlaylists);
+  if (sleepPlaylist && !shared.some((playlist) => playlist.id === sleepPlaylist.id)) shared.unshift(sleepPlaylist);
+  else if (sleepPlaylist) {
+    const position = shared.findIndex((playlist) => playlist.id === sleepPlaylist.id);
+    if (position >= 20) shared.splice(19, 0, ...shared.splice(position, 1));
+  }
 
   if (mixes.length) {
     sections.push({ id: "mixes", title: `Made for ${userName.split(" ")[0]}`, kind: "mixes", items: mixes });
@@ -157,7 +195,7 @@ export function buildHome({ data, userName, savedPlaylists }: HomeInput): HomeSe
 
   if (shared.length) sections.push({ id: "shared-playlists", title: "Curated playlists", kind: "playlists", items: shared.slice(0, 20).map((p) => p.id) });
 
-  const discover = recommend(data, { mode: "discover", limit: 20 });
+  const discover = recommend(homeData, { mode: "discover", limit: 20 });
   if (discover.length) {
     sections.push({
       id: "discover",
@@ -170,9 +208,9 @@ export function buildHome({ data, userName, savedPlaylists }: HomeInput): HomeSe
   }
 
   // "Because you listened to X"
-  const anchor = recent.find((id) => (data.taste.tracks[id] ?? 0) > 0) ?? recent[0];
+  const anchor = recent.find((id) => (homeData.taste.tracks[id] ?? 0) > 0) ?? recent[0];
   if (anchor) {
-    const radio = recommend(data, { mode: "radio", seeds: [anchor], limit: 12, exclude: discover.slice(0, 6).map((d) => d.id) });
+    const radio = recommend(homeData, { mode: "radio", seeds: [anchor], limit: 12, exclude: discover.slice(0, 6).map((d) => d.id) });
     if (radio.length >= 3) {
       sections.push({
         id: `because-${anchor}`,
@@ -184,21 +222,21 @@ export function buildHome({ data, userName, savedPlaylists }: HomeInput): HomeSe
     }
   }
 
-  const hot = trending(data, 20);
+  const hot = trending(homeData, 20);
   if (hot.length >= 3) sections.push({ id: "trending", title: "Trending now", subtitle: "Most played lately", kind: "tracks", items: hot });
 
-  const newest = [...data.tracks].sort((a, b) => b.createdAt - a.createdAt);
+  const newest = [...homeData.tracks].sort((a, b) => b.createdAt - a.createdAt);
   const newAlbums = uniqueBy(newest, (t) => t.album.id).slice(0, 15).map((t) => t.album.id);
   if (newAlbums.length) sections.push({ id: "new", title: "Recently added", kind: "albums", items: newAlbums });
 
   // Artists: personal favourites, otherwise the most played
-  const profile = buildProfile(data, idx);
+  const profile = buildProfile(homeData, idx);
   const favArtists = [...profile.artistPref]
     .filter(([id, v]) => v > 0 && idx.byArtist.has(id))
     .sort((a, b) => b[1] - a[1])
     .map(([id]) => id);
   const popularArtists = uniqueBy(
-    trending(data, 200).flatMap((id) => idx.byId.get(id)!.artists.map((a) => a.id)),
+    trending(homeData, 200).flatMap((id) => idx.byId.get(id)!.artists.map((a) => a.id)),
     (x) => x,
   );
   const allArtists = [...idx.byArtist.keys()].sort((a, b) => (idx.byArtist.get(b)!.length - idx.byArtist.get(a)!.length));
@@ -209,7 +247,7 @@ export function buildHome({ data, userName, savedPlaylists }: HomeInput): HomeSe
 
   // Albums for you: aggregate recommendation scores per album
   const albumScores = new Map<string, number>();
-  for (const r of recommend(data, { mode: "mix", limit: 60, allowKnown: true, maxPerArtist: 6, diversity: 1 })) {
+  for (const r of recommend(homeData, { mode: "mix", limit: 60, allowKnown: true, maxPerArtist: 6, diversity: 1 })) {
     const t = idx.byId.get(r.id)!;
     albumScores.set(t.album.id, Math.max(albumScores.get(t.album.id) ?? 0, r.score));
   }
@@ -219,7 +257,7 @@ export function buildHome({ data, userName, savedPlaylists }: HomeInput): HomeSe
   // A genre the user likes
   const topGenre = [...profile.genrePref].filter(([k]) => idx.byGenre.has(k)).sort((a, b) => b[1] - a[1])[0];
   if (topGenre) {
-    const ids = idx.byGenre.get(topGenre[0])!.filter((id) => !data.taste.last[id]);
+    const ids = idx.byGenre.get(topGenre[0])!.filter((id) => !homeData.taste.last[id]);
     const name = idx.byId.get(idx.byGenre.get(topGenre[0])![0])!.genres.find((g) => genreKey(g) === topGenre[0]) ?? topGenre[0];
     if (ids.length >= 3) sections.push({ id: `genre-${topGenre[0]}`, title: `More ${name} for you`, kind: "tracks", items: ids.slice(0, 15) });
   }
