@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Music2, X } from "lucide-react";
+import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
 import { TopBar } from "@/components/nav/top-bar";
 import { InviteCard } from "@/components/social/invite-card";
@@ -36,6 +37,17 @@ export default function FriendsPage() {
     } catch (error) { toast((error as Error).message, "error"); }
   }
 
+  async function saveProfile(patch: { profileVisibility?: "everyone" | "contacts"; showTopArtists?: boolean }) {
+    try {
+      await api("/api/me/profile", { method: "PATCH", body: patch });
+      await mutateMe();
+      toast("Profile settings saved");
+    } catch (error) {
+      toast((error as Error).message, "error");
+      await mutateMe();
+    }
+  }
+
   async function savePrivacy(nextSharing: boolean, nextVisible: string[]) {
     try {
       await api("/api/me/privacy", { method: "PATCH", body: { activitySharing: nextSharing, activityVisibleTo: nextVisible } });
@@ -52,6 +64,28 @@ export default function FriendsPage() {
       <TopBar title="Friends & Jams" showBack={false} />
       <div className="mx-auto max-w-3xl space-y-8 px-4 py-6 sm:px-6">
         <InviteCard uid={me?.user.uid} onConnected={() => refreshSocial()} />
+
+        <section className="rounded-xl bg-card p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold">Your profile</h2>
+              <p className="mt-1 text-sm text-subdued">Your name, top artists and public playlists at <Link href={`/user/${me?.user.uid ?? ""}`} className="text-white hover:underline">your profile page</Link>.</p>
+            </div>
+          </div>
+          <div className="mt-4 space-y-3 border-t border-white/10 pt-4">
+            <label className="flex items-center gap-3 text-sm">
+              <span className="flex-1">Who can open your profile</span>
+              <select aria-label="Who can open your profile" value={me?.user.profileVisibility ?? "everyone"} onChange={(event) => void saveProfile({ profileVisibility: event.target.value as "everyone" | "contacts" })} className="rounded bg-black/40 px-3 py-2 text-sm outline-none">
+                <option value="everyone">Everyone on Pepper</option>
+                <option value="contacts">Contacts only</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-3 text-sm">
+              <span className="flex-1">Show my top artists</span>
+              <input type="checkbox" aria-label="Show my top artists" checked={me?.user.showTopArtists ?? true} onChange={(event) => void saveProfile({ showTopArtists: event.target.checked })} className="h-5 w-5 accent-[#1ed760]" />
+            </label>
+          </div>
+        </section>
 
         <section className="rounded-xl bg-card p-5">
           <div className="flex items-start justify-between gap-4">
@@ -83,7 +117,7 @@ export default function FriendsPage() {
             const canRequest = !outgoingJam.some((request) => request.toUid === contact.user.uid) && !acceptedJam.some((request) => request.toUid === contact.user.uid);
             return <div key={contact.user.uid} className="flex items-center gap-3 rounded-lg bg-card p-3 sm:p-4">
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold">{contact.user.name}</p>
+                <Link href={`/user/${contact.user.uid}`} className="block truncate font-semibold hover:underline">{contact.user.name}</Link>
                 {activity && <div className="mt-2 flex items-center gap-2 text-sm text-subdued">
                   <Cover image={track?.cover} className="h-9 w-9 shrink-0 rounded" />
                   <span className="min-w-0 truncate"><span className="text-accent">{activity.playing ? "Listening to" : "Paused"}</span> {track?.title ?? "a song"}{track ? ` · ${track.artists.map((artist) => artist.name).join(", ")}` : ""}</span>

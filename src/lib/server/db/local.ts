@@ -248,9 +248,19 @@ export class LocalRepo implements Repo {
       .filter((p) => p.ownerUid === uid || p.collaborators?.some((c) => c.uid === uid))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
+  async listPublicPlaylists(ownerUid: string) {
+    this.fresh();
+    return Object.values(this.state.playlists)
+      .filter((p) => p.ownerUid === ownerUid && p.visibility === "public" && !p.shared)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
   async getPlaylist(id: string) {
     this.fresh();
     return this.state.playlists[id] ?? null;
+  }
+  async getPlaylists(ids: string[]) {
+    this.fresh();
+    return [...new Set(ids)].map((id) => this.state.playlists[id]).filter((p): p is Playlist => Boolean(p));
   }
   async savePlaylist(p: Playlist) {
     const wasShared = this.state.playlists[p.id]?.shared;

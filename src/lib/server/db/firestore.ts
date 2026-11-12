@@ -346,9 +346,19 @@ export class FirestoreRepo implements Repo {
     for (const d of [...owned.docs, ...collaborated.docs]) playlists.set(d.id, d.data() as Playlist);
     return [...playlists.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
+  async listPublicPlaylists(ownerUid: string) {
+    const q = await this.db.collection("playlists").where("ownerUid", "==", ownerUid).where("visibility", "==", "public").get();
+    return q.docs.map((d) => d.data() as Playlist).filter((p) => !p.shared).sort((a, b) => b.updatedAt - a.updatedAt);
+  }
   async getPlaylist(id: string) {
     const s = await this.db.collection("playlists").doc(id).get();
     return s.exists ? (s.data() as Playlist) : null;
+  }
+  async getPlaylists(ids: string[]) {
+    const unique = [...new Set(ids)].slice(0, 200);
+    if (!unique.length) return [];
+    const snaps = await this.db.getAll(...unique.map((id) => this.db.collection("playlists").doc(id)));
+    return snaps.map((s) => s.data() as Playlist | undefined).filter((p): p is Playlist => Boolean(p));
   }
   async savePlaylist(p: Playlist) {
     if (!p.shared) {

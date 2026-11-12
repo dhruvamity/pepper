@@ -168,6 +168,10 @@ export interface UserProfile {
   activityVisibleTo?: string[];
   /** Short code behind the listener's invite link (/add/<code>); regenerated on request. */
   inviteCode?: string;
+  /** Who may open /user/<uid>: every signed-in listener (default) or accepted contacts only. */
+  profileVisibility?: "everyone" | "contacts";
+  /** Whether the profile lists the listener's most played artists (default on). */
+  showTopArtists?: boolean;
 }
 
 export interface Connection {
