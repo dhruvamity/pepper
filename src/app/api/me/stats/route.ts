@@ -64,6 +64,6 @@ export const GET = route(async (req) => {
     hours,
     persona,
     obsession,
-    recent: recent.filter((e) => byId.has(e.trackId)).slice(0, 20).map((e) => ({ trackId: e.trackId, at: e.at, outcome: e.outcome })),
+    recent: recent.filter((e) => byId.has(e.trackId)).slice(0, 20).map((e) => ({ trackId: e.trackId, at: e.at, outcome: e.outcome, source: e.source })),
   });
 });
