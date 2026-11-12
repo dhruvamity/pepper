@@ -223,6 +223,8 @@ export interface UserLibrary {
   playlists: Record<string, number>; // shared playlistId -> savedAt
 }
 
+export type PlaylistVisibility = "private" | "link" | "public";
+
 export interface Playlist {
   id: string;
   ownerUid: string;
@@ -234,6 +236,13 @@ export interface Playlist {
   updatedAt: number;
   /** Shown to every listener (Home, Search) and changed only by admins. */
   shared?: boolean;
+  /**
+   * Who else can open a listener's own playlist: nobody (default), anyone with the link, or
+   * everyone (also listed on the owner's profile and openable from search by id).
+   */
+  visibility?: PlaylistVisibility;
+  /** Custom artwork uploaded by the owner (otherwise a collage of the first covers). */
+  cover?: ImageSet;
   /** Where a shared playlist came from, e.g. "import:soft-romantic-hindi-songs-2026", so a re-import updates it. */
   source?: string;
   /** Accepted collaborators may edit; only the owner can manage access or delete. */
