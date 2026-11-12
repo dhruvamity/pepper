@@ -13,6 +13,7 @@ import { Sidebar } from "./nav/sidebar";
 import { PlayerEngine } from "./player/engine";
 import { ListeningActivityPublisher } from "./player/listening-activity";
 import { JamPanel } from "./player/jam-panel";
+import { JamPill } from "./player/jam-pill";
 import { PlaybackSettingsSheet, ShortcutsSheet } from "./player/playback-settings";
 import { MiniPlayer } from "./player/mini-player";
 import { NowPlaying } from "./player/now-playing";
@@ -102,6 +103,7 @@ function SignedIn({ children, bare, path }: { children: React.ReactNode; bare: b
       </div>
       <PlayerBar />
       <div className="fixed inset-x-0 bottom-0 z-40 md:hidden">
+        <JamPill />
         <MiniPlayer />
         <BottomNav />
       </div>
