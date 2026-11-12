@@ -166,6 +166,12 @@ export interface UserProfile {
   /** Listening presence is private until the user enables it and selects contacts. */
   activitySharing?: boolean;
   activityVisibleTo?: string[];
+  /** Short code behind the listener's invite link (/add/<code>); regenerated on request. */
+  inviteCode?: string;
+  /** Who may open /user/<uid>: every signed-in listener (default) or accepted contacts only. */
+  profileVisibility?: "everyone" | "contacts";
+  /** Whether the profile lists the listener's most played artists (default on). */
+  showTopArtists?: boolean;
 }
 
 export interface Connection {
@@ -203,7 +209,7 @@ export interface UploadIntent {
   id: string;
   ownerUid: string;
   trackId?: string;
-  target?: { kind: "track" | "artist"; id: string };
+  target?: { kind: "track" | "artist" | "playlist"; id: string };
   createdAt: number;
   expiresAt: number;
   objects: StoredObject[];
@@ -223,6 +229,8 @@ export interface UserLibrary {
   playlists: Record<string, number>; // shared playlistId -> savedAt
 }
 
+export type PlaylistVisibility = "private" | "link" | "public";
+
 export interface Playlist {
   id: string;
   ownerUid: string;
@@ -234,6 +242,13 @@ export interface Playlist {
   updatedAt: number;
   /** Shown to every listener (Home, Search) and changed only by admins. */
   shared?: boolean;
+  /**
+   * Who else can open a listener's own playlist: nobody (default), anyone with the link, or
+   * everyone (also listed on the owner's profile and openable from search by id).
+   */
+  visibility?: PlaylistVisibility;
+  /** Custom artwork uploaded by the owner (otherwise a collage of the first covers). */
+  cover?: ImageSet;
   /** Where a shared playlist came from, e.g. "import:soft-romantic-hindi-songs-2026", so a re-import updates it. */
   source?: string;
   /** Accepted collaborators may edit; only the owner can manage access or delete. */

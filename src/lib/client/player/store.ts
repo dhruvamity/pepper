@@ -49,6 +49,15 @@ interface PlayerState {
   volume: number;
   muted: boolean;
   autoplay: boolean;
+  /** Seconds of overlap between songs (0 = plain gapless handoff). */
+  crossfade: number;
+  /** Even out loudness between songs using each song's analysed level. */
+  normalize: boolean;
+  /** Playback rate, 0.5..2. */
+  speed: number;
+  /** Sleep timer: pause at this time, or when the current song ends. */
+  sleepAt: number | null;
+  sleepAfterTrack: boolean;
   view: PlayerView;
 
   /** What caused the last track change (used to classify plays as skips/completes). */
@@ -88,6 +97,10 @@ interface PlayerState {
   setVolume(v: number): void;
   toggleMute(): void;
   setAutoplay(on: boolean): void;
+  setCrossfade(seconds: number): void;
+  setNormalize(on: boolean): void;
+  setSpeed(rate: number): void;
+  setSleep(minutes: number | "track" | null): void;
   setView(v: PlayerView): void;
   stop(): void;
 }
@@ -142,6 +155,11 @@ export const usePlayer = create<PlayerState>()(
       volume: 1,
       muted: false,
       autoplay: true,
+      crossfade: 0,
+      normalize: true,
+      speed: 1,
+      sleepAt: null,
+      sleepAfterTrack: false,
       view: "none",
       lastAction: "play",
       seekTo: null,
@@ -245,6 +263,10 @@ export const usePlayer = create<PlayerState>()(
       ended() {
         if (jamCommand) return jamCommand({ type: "advance" });
         const s = get();
+        if (s.sleepAfterTrack) {
+          set({ playing: false, position: 0, seekTo: 0, sleepAfterTrack: false, needsAutoplay: false, lastAction: "ended" });
+          return;
+        }
         if (s.repeat === "one") {
           set({ seekTo: 0, position: 0, playing: true });
           return;
@@ -412,6 +434,20 @@ export const usePlayer = create<PlayerState>()(
       setAutoplay(on) {
         set({ autoplay: on, ...(!on ? { needsAutoplay: false, prefetch: null } : {}) });
       },
+      setCrossfade(seconds) {
+        set({ crossfade: Math.max(0, Math.min(12, Math.round(seconds))) });
+      },
+      setNormalize(on) {
+        set({ normalize: on });
+      },
+      setSpeed(rate) {
+        set({ speed: Math.max(0.5, Math.min(2, rate)) });
+      },
+      setSleep(minutes) {
+        if (minutes === null) set({ sleepAt: null, sleepAfterTrack: false });
+        else if (minutes === "track") set({ sleepAt: null, sleepAfterTrack: true });
+        else set({ sleepAt: Date.now() + minutes * 60_000, sleepAfterTrack: false });
+      },
       setView(v) {
         set({ view: v });
       },
@@ -441,6 +477,9 @@ export const usePlayer = create<PlayerState>()(
           volume: s.volume,
           muted: s.muted,
           autoplay: s.autoplay,
+          crossfade: s.crossfade,
+          normalize: s.normalize,
+          speed: s.speed,
           autoplayAnchor: s.autoplayAnchor.slice(0, 10),
         };
       },
@@ -453,4 +492,19 @@ export function upcomingFromContext(s: Pick<PlayerState, "order" | "pos">, limit
   const out: { index: number; id: string }[] = [];
   for (let i = s.pos + 1; i < s.order.length && out.length < limit; i++) out.push({ index: i, id: s.order[i] });
   return out;
+}
+
+/** The song that plays after the current one, the way next() would pick it (null when autoplay still has to fetch). */
+export function nextTrackId(s: Pick<PlayerState, "upNext" | "order" | "pos" | "prefetch" | "currentId" | "repeat" | "shuffle">): string | null {
+  if (s.upNext.length) return s.upNext[0].id;
+  if (s.pos + 1 < s.order.length) return s.order[s.pos + 1];
+  if (s.repeat === "all" && s.order.length && !s.shuffle) return s.order[0];
+  if (s.prefetch?.after === s.currentId && s.prefetch.ids.length) return s.prefetch.ids[0];
+  return null;
+}
+
+/** Everything that is playing or lined up, in order: now playing, the queue, then the rest of the context (and prefetched autoplay). */
+export function queueTrackIds(s: Pick<PlayerState, "currentId" | "upNext" | "order" | "pos" | "prefetch">): string[] {
+  const ids = [...(s.currentId ? [s.currentId] : []), ...s.upNext.map((q) => q.id), ...s.order.slice(s.pos + 1), ...(s.prefetch?.after === s.currentId ? s.prefetch.ids : [])];
+  return [...new Set(ids)];
 }

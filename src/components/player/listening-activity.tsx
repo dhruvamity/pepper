@@ -17,8 +17,13 @@ export function ListeningActivityPublisher() {
       if (uid) api("/api/listening-activity", { method: "DELETE" }).catch(() => {});
       return;
     }
+    // Only a tab that has actually been playing clears the shared status: an idle tab must not
+    // erase what another device (or a just-finished session) reported.
+    let announced = false;
     const publish = () => {
       const state = usePlayer.getState();
+      if (!state.currentId && !announced) return;
+      announced = Boolean(state.currentId);
       api("/api/listening-activity", {
         body: { trackId: state.currentId, playing: state.playing, positionMs: Math.floor(state.position) },
         keepalive: true,

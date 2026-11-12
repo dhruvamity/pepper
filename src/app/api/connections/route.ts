@@ -3,9 +3,11 @@ import { requireUser } from "@/lib/server/auth";
 import { repo } from "@/lib/server/db";
 import { HttpError, json, readJson, route } from "@/lib/server/http";
 import { connectionIdFor } from "@/lib/server/social";
+import { INVITE_CODE } from "@/lib/invite";
 
 const userId = z.string().trim().min(1).max(128).refine((id) => !id.includes("/"), "Invalid Pepper ID");
-const connectBody = z.object({ userId });
+const connectBody = z.union([z.object({ userId }), z.object({ inviteCode: z.string().trim().toLowerCase().regex(INVITE_CODE, "Invalid invite link") })]);
+const removeBody = z.object({ userId });
 const actionBody = z.object({ userId, action: z.enum(["accept", "decline"]) });
 
 export const GET = route(async (req) => {
@@ -41,11 +43,12 @@ export const GET = route(async (req) => {
 
 export const POST = route(async (req) => {
   const user = await requireUser(req);
-  const { userId: otherUid } = connectBody.parse(await readJson(req));
-  if (otherUid === user.uid) throw new HttpError(400, "You cannot connect to yourself");
+  const input = connectBody.parse(await readJson(req));
   const db = await repo();
-  const other = await db.getUser(otherUid);
-  if (!other) throw new HttpError(404, "Pepper user not found");
+  const other = "inviteCode" in input ? await db.getUserByInviteCode(input.inviteCode) : await db.getUser(input.userId);
+  if (!other) throw new HttpError(404, "inviteCode" in input ? "This invite link has expired or was replaced" : "Pepper user not found");
+  const otherUid = other.uid;
+  if (otherUid === user.uid) throw new HttpError(400, "You cannot connect to yourself");
   const id = connectionIdFor(user.uid, otherUid);
   const now = Date.now();
   const connection = await db.updateConnection(id, (current) => {
@@ -54,7 +57,7 @@ export const POST = route(async (req) => {
     if (current?.status === "pending") throw new HttpError(409, "Connection request already sent");
     return { id, requesterUid: user.uid, otherUid, status: "pending", createdAt: now, updatedAt: now };
   });
-  return json({ connection });
+  return json({ connection, user: { uid: other.uid, name: other.name, photoURL: other.photoURL } });
 });
 
 export const PATCH = route(async (req) => {
@@ -71,7 +74,7 @@ export const PATCH = route(async (req) => {
 
 export const DELETE = route(async (req) => {
   const user = await requireUser(req);
-  const { userId: otherUid } = connectBody.parse(await readJson(req));
+  const { userId: otherUid } = removeBody.parse(await readJson(req));
   const db = await repo();
   const id = connectionIdFor(user.uid, otherUid);
   await db.updateConnection(id, (current) => {

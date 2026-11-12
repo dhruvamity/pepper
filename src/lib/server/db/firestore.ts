@@ -303,6 +303,10 @@ export class FirestoreRepo implements Repo {
     const s = await this.db.collection("users").doc(uid).get();
     return s.exists ? (s.data() as UserProfile) : null;
   }
+  async getUserByInviteCode(code: string) {
+    const q = await this.db.collection("users").where("inviteCode", "==", code).limit(1).get();
+    return q.empty ? null : (q.docs[0].data() as UserProfile);
+  }
   async saveUser(p: UserProfile) {
     await this.db.collection("users").doc(p.uid).set(p, { merge: true });
   }
@@ -342,9 +346,19 @@ export class FirestoreRepo implements Repo {
     for (const d of [...owned.docs, ...collaborated.docs]) playlists.set(d.id, d.data() as Playlist);
     return [...playlists.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
+  async listPublicPlaylists(ownerUid: string) {
+    const q = await this.db.collection("playlists").where("ownerUid", "==", ownerUid).where("visibility", "==", "public").get();
+    return q.docs.map((d) => d.data() as Playlist).filter((p) => !p.shared).sort((a, b) => b.updatedAt - a.updatedAt);
+  }
   async getPlaylist(id: string) {
     const s = await this.db.collection("playlists").doc(id).get();
     return s.exists ? (s.data() as Playlist) : null;
+  }
+  async getPlaylists(ids: string[]) {
+    const unique = [...new Set(ids)].slice(0, 200);
+    if (!unique.length) return [];
+    const snaps = await this.db.getAll(...unique.map((id) => this.db.collection("playlists").doc(id)));
+    return snaps.map((s) => s.data() as Playlist | undefined).filter((p): p is Playlist => Boolean(p));
   }
   async savePlaylist(p: Playlist) {
     if (!p.shared) {
@@ -421,6 +435,24 @@ export class FirestoreRepo implements Repo {
     if (!unique.length) return [];
     const snaps = await this.db.getAll(...unique.map((uid) => this.db.collection("activities").doc(uid)));
     return snaps.map((s) => s.data() as ListeningActivity | undefined).filter((a): a is ListeningActivity => Boolean(a));
+  }
+  watchActivities(uids: string[], emit: (activities: ListeningActivity[]) => void, fail: (error: Error) => void) {
+    const unique = [...new Set(uids)].slice(0, 100);
+    if (!unique.length) {
+      queueMicrotask(() => emit([]));
+      return () => {};
+    }
+    // "in" queries take at most 30 ids; each chunk is its own listener and they merge into one list.
+    const chunks: string[][] = [];
+    for (let i = 0; i < unique.length; i += 30) chunks.push(unique.slice(i, i + 30));
+    const byChunk = new Map<number, ListeningActivity[]>();
+    const unsubscribes = chunks.map((chunk, index) =>
+      this.db.collection("activities").where(FieldPath.documentId(), "in", chunk).onSnapshot((snap) => {
+        byChunk.set(index, snap.docs.map((d) => d.data() as ListeningActivity));
+        if (byChunk.size === chunks.length) emit([...byChunk.values()].flat());
+      }, fail),
+    );
+    return () => unsubscribes.forEach((u) => u());
   }
   async saveActivity(uid: string, activity: ListeningActivity | null) {
     const ref = this.db.collection("activities").doc(uid);

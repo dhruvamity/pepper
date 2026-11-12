@@ -23,6 +23,11 @@ function trackIdForAudio(key: string) {
 async function isReferenced(intent: UploadIntent, providerId: string, key: string, imageRefs: Set<string>, active: UploadIntent[]) {
   const object = objectId(providerId, key);
   if (imageRefs.has(object) || active.some((session) => session.objects.some((item) => objectId(item.provider, item.key) === object))) return true;
+  if (intent.target?.kind === "playlist") {
+    const refs = new Set<string>();
+    collectImageRefs(refs, (await (await repo()).getPlaylist(intent.target.id))?.cover);
+    return refs.has(object);
+  }
   const trackId = intent.target?.kind === "track" ? intent.target.id : trackIdForAudio(key);
   if (!trackId) return false;
   const track = await (await repo()).getTrack(trackId);
@@ -40,6 +45,7 @@ export async function runMaintenance(now = Date.now()) {
   const imageRefs = new Set<string>();
   for (const track of catalog.tracks) collectImageRefs(imageRefs, track.cover);
   for (const artist of Object.values(catalog.artists)) collectImageRefs(imageRefs, artist.image);
+  for (const playlist of catalog.playlists ?? []) collectImageRefs(imageRefs, playlist.cover);
 
   let deletedObjects = 0;
   let removedIntents = 0;

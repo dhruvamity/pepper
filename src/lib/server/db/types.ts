@@ -50,6 +50,7 @@ export interface Repo {
 
   // Users
   getUser(uid: string): Promise<UserProfile | null>;
+  getUserByInviteCode(code: string): Promise<UserProfile | null>;
   saveUser(profile: UserProfile): Promise<void>;
   listUsers(limit: number): Promise<UserProfile[]>;
   /** Number of users, optionally only those who joined at or after `since`. */
@@ -59,7 +60,10 @@ export interface Repo {
   getLibrary(uid: string): Promise<UserLibrary>;
   setLibraryItem(uid: string, kind: LibraryKind, id: string, on: boolean): Promise<void>;
   listPlaylists(uid: string): Promise<Playlist[]>;
+  /** A listener's playlists with visibility "public" (for their profile). */
+  listPublicPlaylists(ownerUid: string): Promise<Playlist[]>;
   getPlaylist(id: string): Promise<Playlist | null>;
+  getPlaylists(ids: string[]): Promise<Playlist[]>;
   savePlaylist(p: Playlist): Promise<void>;
   updatePlaylist(id: string, change: (playlist: Playlist | null) => Playlist): Promise<Playlist>;
   deletePlaylist(id: string, shared?: boolean): Promise<void>;
@@ -70,6 +74,8 @@ export interface Repo {
   updateConnection(id: string, change: (connection: Connection | null) => Connection | null): Promise<Connection | null>;
   getActivity(uid: string): Promise<ListeningActivity | null>;
   getActivities(uids: string[]): Promise<ListeningActivity[]>;
+  /** Live listening presence of the given listeners: emits the current set now and after every change. */
+  watchActivities(uids: string[], emit: (activities: ListeningActivity[]) => void, fail: (error: Error) => void): () => void;
   saveActivity(uid: string, activity: ListeningActivity | null): Promise<void>;
   deleteExpiredActivities(now: number, limit: number): Promise<number>;
   listJamRequests(uid: string): Promise<JamRequest[]>;

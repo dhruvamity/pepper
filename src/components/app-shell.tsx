@@ -4,7 +4,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/client/api";
 import { useAuth } from "@/lib/client/auth";
-import { useCatalog } from "@/lib/client/catalog";
 import { useMe } from "@/lib/client/me";
 import { Logo } from "./icons";
 import { BottomNav } from "./nav/bottom-nav";
@@ -14,6 +13,8 @@ import { Sidebar } from "./nav/sidebar";
 import { PlayerEngine } from "./player/engine";
 import { ListeningActivityPublisher } from "./player/listening-activity";
 import { JamPanel } from "./player/jam-panel";
+import { JamPill } from "./player/jam-pill";
+import { PlaybackSettingsSheet, ShortcutsSheet } from "./player/playback-settings";
 import { MiniPlayer } from "./player/mini-player";
 import { NowPlaying } from "./player/now-playing";
 import { PlayerBar } from "./player/player-bar";
@@ -72,16 +73,8 @@ function NotInvited({ message }: { message: string }) {
 }
 
 function SignedIn({ children, bare, path }: { children: React.ReactNode; bare: boolean; path: string }) {
-  const { data: me, error: meError } = useMe();
-  const { catalog } = useCatalog();
-  const router = useRouter();
+  const { error: meError } = useMe();
   const [main, setMain] = useState<HTMLElement | null>(null);
-
-  // First visit: ask for favourite artists so recommendations are good from day one.
-  useEffect(() => {
-    if (!me || !catalog || me.user.onboarded || path === "/onboarding" || path.startsWith("/admin") || path.startsWith("/jam/")) return;
-    if (catalog.artists.size >= 3 && !sessionStorage.getItem("pepper.skipOnboarding")) router.replace("/onboarding");
-  }, [me, catalog, path, router]);
 
   // Scroll to top on navigation (the main element is the scroll container).
   useEffect(() => {
@@ -110,6 +103,7 @@ function SignedIn({ children, bare, path }: { children: React.ReactNode; bare: b
       </div>
       <PlayerBar />
       <div className="fixed inset-x-0 bottom-0 z-40 md:hidden">
+        <JamPill />
         <MiniPlayer />
         <BottomNav />
       </div>
@@ -119,6 +113,8 @@ function SignedIn({ children, bare, path }: { children: React.ReactNode; bare: b
       <AddToPlaylistSheet />
       <CreditsSheet />
       <ProfileSheet />
+      <PlaybackSettingsSheet />
+      <ShortcutsSheet />
       <Toasts />
       <PlayerEngine />
       <ListeningActivityPublisher />

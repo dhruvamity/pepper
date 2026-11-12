@@ -2,12 +2,14 @@ import { z } from "zod";
 import { requireUser } from "@/lib/server/auth";
 import { repo } from "@/lib/server/db";
 import { HttpError, json, readJson, route } from "@/lib/server/http";
+import { playlistIsLinkable } from "@/lib/playlists";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 const patch = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   description: z.string().trim().max(300).optional(),
+  visibility: z.enum(["private", "link", "public"]).optional(),
   trackIds: z.array(z.string().max(40)).max(2000).optional(),
   add: z.array(z.string().max(40)).max(500).optional(),
   remove: z.array(z.string().max(40)).max(500).optional(),
@@ -22,7 +24,8 @@ async function load(req: Request, ctx: Ctx, mustEdit: boolean) {
   const p = stored && (stored.shared ? stored : (await db.getCatalog()).playlists?.find((list) => list.id === id) ?? stored);
   const isOwner = Boolean(p && p.ownerUid === u.uid);
   const isCollaborator = Boolean(p?.collaboratorUids?.includes(u.uid) || p?.collaborators?.some((c) => c.uid === u.uid));
-  if (!p || (!p.shared && !isOwner && !isCollaborator)) throw new HttpError(404, "Playlist not found");
+  // Link-visible and public playlists open for any signed-in listener; private ones only for their team.
+  if (!p || (!playlistIsLinkable(p) && !isOwner && !isCollaborator)) throw new HttpError(404, "Playlist not found");
   // Shared playlists belong to everyone: admins look after them.
   if (mustEdit && !isOwner && !isCollaborator && !(p.shared && u.isAdmin)) throw new HttpError(403, "You cannot edit this playlist");
   return { db, p, u, isOwner, isCollaborator };
@@ -34,11 +37,12 @@ export const GET = route<Ctx>(async (req, ctx) => {
 });
 
 export const PATCH = route<Ctx>(async (req, ctx) => {
-  const { db, p, u } = await load(req, ctx, true);
+  const { db, p, u, isOwner } = await load(req, ctx, true);
   const input = patch.parse(await readJson(req));
   if (input.trackIds !== undefined && input.expectedRevision === undefined) {
     throw new HttpError(400, "Replacing the song order requires the playlist revision", "playlist_revision_required");
   }
+  if (input.visibility !== undefined && (!isOwner || p.shared)) throw new HttpError(403, "Only the owner can change who sees this playlist");
   const next = await db.updatePlaylist(p.id, (current) => {
     if (!current) throw new HttpError(404, "Playlist not found");
     const shared = current.shared || p.shared;
@@ -56,9 +60,11 @@ export const PATCH = route<Ctx>(async (req, ctx) => {
     if (input.remove?.length) changes.push(`Removed ${input.remove.length} song${input.remove.length === 1 ? "" : "s"}`);
     if (input.trackIds) changes.push("Reordered songs");
     if (input.name !== undefined || input.description !== undefined) changes.push("Updated playlist details");
+    if (input.visibility !== undefined && input.visibility !== (current.visibility ?? "private")) changes.push(`Made the playlist ${input.visibility === "private" ? "private" : input.visibility === "link" ? "visible to anyone with the link" : "public"}`);
     const at = Date.now();
     return { ...current, ...(shared ? { shared: true } : {}), name: input.name ?? current.name,
       ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
       trackIds: ids, updatedAt: at, revision: (current.revision ?? 0) + 1,
       history: changes.length ? [...(current.history ?? []), { at, actorUid: u.uid, actorName: u.name, action: changes.join(" · ") }].slice(-50) : current.history };
   });

@@ -17,6 +17,7 @@ export const PATCH = route(async (req) => {
   if (friends.some((connection) => connection?.status !== "accepted")) throw new HttpError(400, "Listening activity can only be shared with accepted contacts");
   const now = Date.now();
   const profile: UserProfile = {
+    ...existing,
     uid: user.uid,
     name: user.name || existing?.name || "Listener",
     email: user.email ?? existing?.email,
