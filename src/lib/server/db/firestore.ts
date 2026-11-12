@@ -303,6 +303,10 @@ export class FirestoreRepo implements Repo {
     const s = await this.db.collection("users").doc(uid).get();
     return s.exists ? (s.data() as UserProfile) : null;
   }
+  async getUserByInviteCode(code: string) {
+    const q = await this.db.collection("users").where("inviteCode", "==", code).limit(1).get();
+    return q.empty ? null : (q.docs[0].data() as UserProfile);
+  }
   async saveUser(p: UserProfile) {
     await this.db.collection("users").doc(p.uid).set(p, { merge: true });
   }

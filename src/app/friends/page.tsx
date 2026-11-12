@@ -1,9 +1,9 @@
 "use client";
 
-import { Check, Copy, Music2, UserPlus, Users, X } from "lucide-react";
-import { useState } from "react";
+import { Check, Music2, X } from "lucide-react";
 import useSWR, { useSWRConfig } from "swr";
 import { TopBar } from "@/components/nav/top-bar";
+import { InviteCard } from "@/components/social/invite-card";
 import { Cover } from "@/components/ui/cover";
 import { api, fetcher } from "@/lib/client/api";
 import { joinListeningJam, respondToJamRequest, requestListeningJam } from "@/lib/client/jam";
@@ -26,8 +26,6 @@ export default function FriendsPage() {
   const { data: social, mutate: refreshSocial } = useSWR<SocialResponse>("/api/connections", fetcher, { refreshInterval: 15_000 });
   const { catalog } = useCatalog();
   const { mutate } = useSWRConfig();
-  const [pepperId, setPepperId] = useState("");
-  const [busy, setBusy] = useState(false);
   const sharing = Boolean(me?.user.activitySharing);
   const visibleTo = me?.user.activityVisibleTo ?? [];
 
@@ -61,37 +59,7 @@ export default function FriendsPage() {
     <div className="pb-8">
       <TopBar title="Friends & Jams" showBack={false} />
       <div className="mx-auto max-w-3xl space-y-8 px-4 py-6 sm:px-6">
-        <section className="rounded-xl bg-card p-5">
-          <div className="flex items-start gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent"><Users /></div>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-lg font-bold">Your Pepper ID</h2>
-              <p className="mt-1 text-sm text-subdued">Share this ID with a friend so they can send you a contact request.</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <code className="max-w-full break-all rounded bg-black/40 px-3 py-2 text-sm">{me?.user.uid ?? "Loading…"}</code>
-                <button type="button" disabled={!me} className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/20 disabled:opacity-50" onClick={async () => {
-                  if (!me) return;
-                  try { await navigator.clipboard.writeText(me.user.uid); toast("Pepper ID copied"); }
-                  catch { toast("Could not copy Pepper ID", "error"); }
-                }}><Copy size={16} /> Copy</button>
-              </div>
-              <form className="mt-4 flex gap-2" onSubmit={async (event) => {
-                event.preventDefault();
-                setBusy(true);
-                try {
-                  const { connection } = await api<{ connection: { status: string } }>("/api/connections", { body: { userId: pepperId.trim() } });
-                  setPepperId(""); await refreshSocial();
-                  toast(connection.status === "accepted" ? "You’re connected" : "Contact request sent");
-                }
-                catch (error) { toast((error as Error).message, "error"); }
-                finally { setBusy(false); }
-              }}>
-                <input value={pepperId} onChange={(event) => setPepperId(event.target.value)} placeholder="Enter a friend’s Pepper ID" className="h-11 min-w-0 flex-1 rounded bg-black/40 px-3 text-sm outline-none focus:ring-1 focus:ring-white/30" />
-                <button disabled={busy || !pepperId.trim()} className="flex h-11 items-center gap-2 rounded-full bg-white px-4 text-sm font-bold text-black disabled:opacity-50"><UserPlus size={17} /> Connect</button>
-              </form>
-            </div>
-          </div>
-        </section>
+        <InviteCard uid={me?.user.uid} onConnected={() => refreshSocial()} />
 
         <section className="rounded-xl bg-card p-5">
           <div className="flex items-start justify-between gap-4">
@@ -135,7 +103,7 @@ export default function FriendsPage() {
               }}>Request Jam</button>
               <button type="button" aria-label={`Remove ${contact.user.name}`} className="rounded-full p-2 text-subdued hover:text-white" onClick={() => void changeConnection(contact.user.uid, "remove")}><X size={18} /></button>
             </div>;
-          }) : <div className="rounded-lg bg-card p-5 text-sm text-subdued">No contacts yet. Share your Pepper ID to get started.</div>}
+          }) : <div className="rounded-lg bg-card p-5 text-sm text-subdued">No contacts yet. Share your invite link to get started.</div>}
         </section>
 
         {(incomingJam.length > 0 || outgoingJam.length > 0 || acceptedJam.length > 0) && <section className="space-y-3">
