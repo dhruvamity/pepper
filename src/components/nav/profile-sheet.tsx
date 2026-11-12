@@ -7,7 +7,7 @@ import { sendJamAction } from "@/lib/client/jam";
 import { useMe } from "@/lib/client/me";
 import { usePlayer } from "@/lib/client/player/store";
 import { useUI } from "@/lib/client/ui";
-import { ChartIcon, LibraryIcon, LogoutIcon, RadioIcon, UploadIcon } from "../icons";
+import { ChartIcon, LibraryIcon, LogoutIcon, SettingsIcon, UploadIcon } from "../icons";
 import { Sheet, SheetItem } from "../ui/sheet";
 import { Avatar } from "./top-bar";
 
@@ -16,7 +16,6 @@ export function ProfileSheet() {
   const setOpen = useUI((s) => s.setProfileOpen);
   const { user, signOut, mode } = useAuth();
   const { data: me } = useMe();
-  const autoplay = usePlayer((s) => s.autoplay);
   const router = useRouter();
   const go = (href: string) => {
     setOpen(false);
@@ -52,16 +51,10 @@ export function ProfileSheet() {
             </SheetItem>
           </>
         )}
-        <label className="flex cursor-pointer items-center gap-4 px-5 py-3 text-[15px] font-medium hover:bg-white/10">
-          <span className="flex w-6 justify-center text-subdued">
-            <RadioIcon />
-          </span>
-          <span className="flex-1">
-            Autoplay
-            <span className="block text-xs font-normal text-subdued">Keep playing similar songs when your music ends</span>
-          </span>
-          <input type="checkbox" className="h-5 w-5 accent-[#1ed760]" checked={autoplay} onChange={(e) => usePlayer.getState().setAutoplay(e.target.checked)} />
-        </label>
+        <SheetItem icon={<SettingsIcon />} onClick={() => useUI.getState().setPlaybackSettingsOpen(true)}>
+          Playback settings
+          <span className="block text-xs font-normal text-subdued">Autoplay, crossfade, volume, speed, sleep timer</span>
+        </SheetItem>
         <SheetItem
           icon={<LogoutIcon />}
           onClick={async () => {

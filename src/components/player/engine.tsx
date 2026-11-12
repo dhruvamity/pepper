@@ -10,8 +10,9 @@ import { useEffect, useRef } from "react";
 import { api, getToken } from "@/lib/client/api";
 import { useCatalog } from "@/lib/client/catalog";
 import { blockJamAudio, inJam, jamAudioEnabled, jamPlaybackPosition, useJam } from "@/lib/client/jam";
-import { usePlayer } from "@/lib/client/player/store";
+import { nextTrackId, usePlayer } from "@/lib/client/player/store";
 import { toast } from "@/lib/client/toast";
+import { useUI } from "@/lib/client/ui";
 import type { CatalogTrack, PlayEndReason, PlayReport } from "@/lib/types";
 import { mediaUrl } from "@/lib/util";
 
@@ -236,6 +237,23 @@ export function PlayerEngine() {
     getToken().then((tk) => (tokenRef.current = tk));
   };
 
+  /** Start the analytics record for a song and tell the OS (lock screen, tab title) what plays. */
+  const announce = (id: string) => {
+    const t = track(id);
+    startPlay(id);
+    if (!t) return;
+    document.title = `${t.title} · ${t.artists.map((a) => a.name).join(", ")}`;
+    if ("mediaSession" in navigator) {
+      const art = (ref?: string, size = "512x512") => (ref ? [{ src: new URL(mediaUrl(ref)!, location.origin).href, sizes: size, type: ref.endsWith(".webp") ? "image/webp" : "image/jpeg" }] : []);
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: t.title,
+        artist: t.artists.map((a) => a.name).join(", "),
+        album: t.album.title,
+        artwork: [...art(t.cover?.sm, "300x300"), ...art(t.cover?.lg, "640x640")],
+      });
+    }
+  };
+
   // ---------------------------------------------------------------- preload the next track
   const preloadedFor = useRef<string | null>(null);
   const prefetchedFor = useRef<string | null>(null);
@@ -263,7 +281,7 @@ export function PlayerEngine() {
       }
       return;
     }
-    if (preloadedFor.current === nextId) return;
+    if (preloadedFor.current === nextId || fadeRef.current) return;
     preloadedFor.current = nextId;
     streamUrl(nextId)
       .then((url) => {
@@ -272,17 +290,118 @@ export function PlayerEngine() {
       .catch(() => {});
   };
 
+  // ---------------------------------------------------------------- crossfade & loudness
+  const swapRef = useRef<(next: HTMLAudioElement) => void>(() => {});
+  /** A fade in progress: the standby element already plays `id`, and the store should adopt it. */
+  const fadeRef = useRef<{ id: string; el: HTMLAudioElement; raf: number } | null>(null);
+
+  /** Volume for a song: the listener's volume, reduced for songs louder than -14 dBFS when normalising. */
+  const effectiveVolume = (id: string | null) => {
+    const s = usePlayer.getState();
+    const loudness = s.normalize ? track(id)?.features?.loudness : undefined;
+    const gain = typeof loudness === "number" ? Math.min(1, 10 ** ((-14 - loudness) / 20)) : 1;
+    return s.volume * gain;
+  };
+
+  const cancelFade = () => {
+    const fade = fadeRef.current;
+    if (!fade) return;
+    fadeRef.current = null;
+    cancelAnimationFrame(fade.raf);
+    fade.el.pause();
+    fade.el.muted = true;
+    const audio = audioRef.current;
+    if (audio) audio.volume = effectiveVolume(usePlayer.getState().currentId);
+  };
+
+  /** Near the end of a song, start the preloaded next one on the standby element and blend the two. */
+  const maybeStartFade = (posMs: number, durMs: number) => {
+    const s = usePlayer.getState();
+    const standby = preloadRef.current;
+    const audio = audioRef.current;
+    if (fadeRef.current || !audio || !standby || s.crossfade <= 0 || inJam() || s.repeat === "one" || s.sleepAfterTrack) return;
+    const fadeMs = Math.min(s.crossfade * 1000, durMs / 2);
+    const remaining = durMs - posMs;
+    if (remaining > fadeMs || remaining < 400) return;
+    const nextId = nextTrackId(s);
+    if (!nextId || preloadedFor.current !== nextId || !standby.src || standby.readyState < 2) return;
+    // The overlap is measured in song time; at 2× it passes twice as fast on the clock.
+    const wallMs = fadeMs / s.speed;
+    standby.currentTime = 0;
+    standby.playbackRate = s.speed;
+    standby.volume = 0;
+    standby.muted = s.muted;
+    const target = effectiveVolume(nextId);
+    const from = audio.volume;
+    const started = performance.now();
+    standby.play().then(
+      () => {
+        if (fadeRef.current || preloadedFor.current !== nextId) {
+          standby.pause();
+          return;
+        }
+        const step = () => {
+          const fade = fadeRef.current;
+          if (!fade) return;
+          const t = Math.min(1, (performance.now() - started) / wallMs);
+          // Equal-power curves keep the overall level steady through the overlap.
+          standby.volume = target * Math.sin((t * Math.PI) / 2);
+          if (audioRef.current !== standby) audioRef.current!.volume = from * Math.cos((t * Math.PI) / 2);
+          if (t < 1) fade.raf = requestAnimationFrame(step);
+        };
+        fadeRef.current = { id: nextId, el: standby, raf: requestAnimationFrame(step) };
+      },
+      () => {
+        // Autoplay policy refused the second element: fall back to the plain handoff.
+        standby.muted = true;
+      },
+    );
+  };
+
+  /** The store moved on to the song a crossfade already plays: make that element the audible one. */
+  const adoptFade = (id: string, wanted: boolean) => {
+    const fade = fadeRef.current;
+    if (!fade || fade.id !== id || !wanted || inJam()) return false;
+    const s = usePlayer.getState();
+    fadeRef.current = null;
+    cancelAnimationFrame(fade.raf);
+    preloadedFor.current = null;
+    swapRef.current(fade.el);
+    loadedId.current = id;
+    loadedRestart.current = s.restartToken;
+    announce(id);
+    if (playRef.current) playRef.current.lastTime = fade.el.currentTime;
+    fade.el.volume = effectiveVolume(id);
+    fade.el.muted = s.muted;
+    usePlayer.getState().setBuffering(false);
+    if (s.seekTo !== null) usePlayer.setState({ seekTo: null });
+    return true;
+  };
+
   // ---------------------------------------------------------------- setup
   useEffect(() => {
     usePlayer.persist.rehydrate();
     usePlayer.setState({ playing: false, needsAutoplay: false, view: "none" });
-    const audio = new Audio();
+    // `audio` is whichever element is currently audible. A crossfade starts the next song on the
+    // standby element and then swaps the two, so every handler reads this binding, never a copy.
+    let audio = new Audio();
     audio.preload = "auto";
     audioRef.current = audio;
     audioEl = audio;
     preloadRef.current = new Audio();
     preloadRef.current.preload = "auto";
     preloadRef.current.muted = true;
+    swapRef.current = (next) => {
+      const old = audio;
+      audio = next;
+      audioRef.current = next;
+      audioEl = next;
+      preloadRef.current = old;
+      old.pause();
+      old.removeAttribute("src");
+      old.load();
+      old.muted = true;
+    };
 
     // Resend a play that was interrupted by the tab being killed.
     try {
@@ -344,6 +463,12 @@ export function PlayerEngine() {
           }
         }
         maybePreloadNext(t * 1000, d);
+        const s = usePlayer.getState();
+        if (s.sleepAt !== null && Date.now() >= s.sleepAt && !inJam()) {
+          s.setSleep(null);
+          s.setPlaying(false);
+          toast("Sleep timer: paused");
+        } else if (d && !audio.paused) maybeStartFade(t * 1000, d);
       }
     };
     const onSeeked = () => {
@@ -388,21 +513,28 @@ export function PlayerEngine() {
         const url = await streamUrl(id, true);
         if (seq !== loadSeq.current) return;
         audio.src = url;
+        audio.playbackRate = usePlayer.getState().speed; // a new source resets the rate
         audio.currentTime = at;
         if (usePlayer.getState().playing && jamAudioEnabled()) await audio.play();
       } catch {
         toast("Playback error", "error");
       }
     };
-    audio.addEventListener("timeupdate", onTime);
-    audio.addEventListener("loadedmetadata", alignJam);
-    audio.addEventListener("seeked", onSeeked);
-    audio.addEventListener("ended", onEnded);
-    audio.addEventListener("waiting", onWaiting);
-    audio.addEventListener("playing", onPlaying);
-    audio.addEventListener("pause", onPause);
-    audio.addEventListener("play", onPlay);
-    audio.addEventListener("error", onError);
+    const handlers: [string, () => void | Promise<void>][] = [
+      ["timeupdate", onTime],
+      ["loadedmetadata", alignJam],
+      ["seeked", onSeeked],
+      ["ended", onEnded],
+      ["waiting", onWaiting],
+      ["playing", onPlaying],
+      ["pause", onPause],
+      ["play", onPlay],
+      ["error", onError],
+    ];
+    // Both elements get the same handlers; only events from the audible one count.
+    const guarded = handlers.map(([name, fn]) => [name, (e: Event) => { if (e.target === audio) void fn(); }] as const);
+    const elements = [audio, preloadRef.current];
+    for (const el of elements) for (const [name, fn] of guarded) el.addEventListener(name, fn);
 
     const onGesture = () => unlockAudio();
     document.addEventListener("pointerdown", onGesture, { capture: true });
@@ -422,6 +554,8 @@ export function PlayerEngine() {
       else if (e.code === "ArrowLeft" && (e.metaKey || e.ctrlKey)) s.prev();
       else if (e.code === "ArrowRight" && e.shiftKey) s.seek(s.position + 10_000);
       else if (e.code === "ArrowLeft" && e.shiftKey) s.seek(Math.max(0, s.position - 10_000));
+      else if (e.key === "m" && !e.metaKey && !e.ctrlKey && !e.altKey) s.toggleMute();
+      else if (e.key === "?") useUI.getState().setShortcutsOpen(!useUI.getState().shortcutsOpen);
     };
     window.addEventListener("keydown", onKey);
 
@@ -450,21 +584,14 @@ export function PlayerEngine() {
       // eslint-disable-next-line react-hooks/exhaustive-deps
       ++replanSeq.current;
       loadedId.current = null;
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-      preloadRef.current?.removeAttribute("src");
-      preloadRef.current?.load();
+      cancelFade();
+      for (const el of elements) {
+        el.pause();
+        el.removeAttribute("src");
+        el.load();
+        for (const [name, fn] of guarded) el.removeEventListener(name, fn);
+      }
       unlocked = false;
-      audio.removeEventListener("timeupdate", onTime);
-      audio.removeEventListener("loadedmetadata", alignJam);
-      audio.removeEventListener("seeked", onSeeked);
-      audio.removeEventListener("ended", onEnded);
-      audio.removeEventListener("waiting", onWaiting);
-      audio.removeEventListener("playing", onPlaying);
-      audio.removeEventListener("pause", onPause);
-      audio.removeEventListener("play", onPlay);
-      audio.removeEventListener("error", onError);
       document.removeEventListener("pointerdown", onGesture, { capture: true });
       document.removeEventListener("keydown", onGesture, { capture: true });
       window.removeEventListener("pagehide", onPageHide);
@@ -485,8 +612,7 @@ export function PlayerEngine() {
   }, [catalogReady, currentId, currentAvailable, refresh]);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !catalogReady) return;
+    if (!audioRef.current || !catalogReady) return;
     const id = currentId;
     const seq = ++loadSeq.current;
     const s = usePlayer.getState();
@@ -494,6 +620,10 @@ export function PlayerEngine() {
     prefetchedFor.current = null;
 
     if (playRef.current && !playRef.current.reported) finishCurrent(reasonFor(s.lastAction, playRef.current));
+    // A crossfade already started this song on the standby element: adopt it instead of reloading.
+    if (id && adoptFade(id, s.playing && listenHere)) return;
+    cancelFade();
+    const audio = audioRef.current;
     audio.pause();
     audio.removeAttribute("src");
     audio.load();
@@ -519,22 +649,13 @@ export function PlayerEngine() {
       }
       return;
     }
-    startPlay(id);
-    document.title = `${t.title} · ${t.artists.map((a) => a.name).join(", ")}`;
-    if ("mediaSession" in navigator) {
-      const art = (ref?: string, size = "512x512") => (ref ? [{ src: new URL(mediaUrl(ref)!, location.origin).href, sizes: size, type: ref.endsWith(".webp") ? "image/webp" : "image/jpeg" }] : []);
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: t.title,
-        artist: t.artists.map((a) => a.name).join(", "),
-        album: t.album.title,
-        artwork: [...art(t.cover?.sm, "300x300"), ...art(t.cover?.lg, "640x640")],
-      });
-    }
+    announce(id);
     usePlayer.getState().setBuffering(true);
     streamUrl(id)
       .then(async (url) => {
         if (seq !== loadSeq.current) return;
         audio.src = url;
+        audio.playbackRate = usePlayer.getState().speed; // a new source resets the rate
         loadedId.current = id;
         loadedRestart.current = s.restartToken;
         const latest = usePlayer.getState();
@@ -613,12 +734,22 @@ export function PlayerEngine() {
 
   const volume = usePlayer((s) => s.volume);
   const muted = usePlayer((s) => s.muted);
+  const normalize = usePlayer((s) => s.normalize);
+  const speed = usePlayer((s) => s.speed);
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    audio.volume = volume;
+    // A running crossfade owns the volumes until the swap.
+    if (!fadeRef.current) audio.volume = effectiveVolume(currentId);
     audio.muted = muted;
-  }, [volume, muted]);
+    for (const el of [audio, preloadRef.current]) {
+      if (!el) continue;
+      el.playbackRate = speed;
+      el.defaultPlaybackRate = speed;
+      el.preservesPitch = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [volume, muted, normalize, speed, currentId, catalogReady]);
 
   // ---------------------------------------------------------------- autoplay radio
   useEffect(() => {

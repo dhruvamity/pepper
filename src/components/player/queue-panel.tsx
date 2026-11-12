@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent } from "react";
-import { GripVertical, Users } from "lucide-react";
+import { GripVertical, ListPlus, Users } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { usePlaylistActions } from "@/lib/client/me";
+import { toast } from "@/lib/client/toast";
 import { useCatalog } from "@/lib/client/catalog";
 import { setJamOpen, useJam } from "@/lib/client/jam";
-import { upcomingFromContext, usePlayer, type UpcomingItem } from "@/lib/client/player/store";
+import { queueTrackIds, upcomingFromContext, usePlayer, type UpcomingItem } from "@/lib/client/player/store";
 import type { CatalogTrack } from "@/lib/types";
 import { CloseIcon, Equalizer, NextIcon } from "../icons";
 import { Cover } from "../ui/cover";
@@ -38,6 +41,20 @@ export function QueuePanel() {
   const view = usePlayer((s) => s.view);
   const playing = usePlayer((s) => s.playing);
   const currentId = usePlayer((s) => s.currentId);
+  const router = useRouter();
+  const { createPlaylist } = usePlaylistActions();
+  const saveQueue = async () => {
+    const ids = queueTrackIds(usePlayer.getState()).slice(0, 2000);
+    if (!ids.length) return;
+    try {
+      const p = await createPlaylist({ name: `Queue · ${new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" })}`, trackIds: ids });
+      toast(`Saved ${ids.length} song${ids.length === 1 ? "" : "s"} as “${p.name}”`);
+      usePlayer.getState().setView("none");
+      router.push(`/playlist/${p.id}`);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  };
   const upNext = usePlayer((s) => s.upNext);
   const order = usePlayer((s) => s.order);
   const pos = usePlayer((s) => s.pos);
@@ -160,6 +177,9 @@ export function QueuePanel() {
           <h2 className="flex flex-1 items-center gap-3 text-lg font-bold">{jam ? "Jam queue" : "Queue"}
             {jam && <button type="button" aria-label="Jam details" className={actionClass} onClick={() => setJamOpen(true)}><Users size={18} /></button>}
           </h2>
+          {current && <button type="button" title="Save queue as playlist" aria-label="Save queue as playlist" className={actionClass} onClick={() => void saveQueue()}>
+            <ListPlus size={18} />
+          </button>}
           <button type="button" onClick={() => st().setView("none")} aria-label="Close" className={actionClass}>
             <CloseIcon size={18} />
           </button>

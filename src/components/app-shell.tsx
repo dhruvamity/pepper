@@ -13,6 +13,7 @@ import { Sidebar } from "./nav/sidebar";
 import { PlayerEngine } from "./player/engine";
 import { ListeningActivityPublisher } from "./player/listening-activity";
 import { JamPanel } from "./player/jam-panel";
+import { PlaybackSettingsSheet, ShortcutsSheet } from "./player/playback-settings";
 import { MiniPlayer } from "./player/mini-player";
 import { NowPlaying } from "./player/now-playing";
 import { PlayerBar } from "./player/player-bar";
@@ -110,6 +111,8 @@ function SignedIn({ children, bare, path }: { children: React.ReactNode; bare: b
       <AddToPlaylistSheet />
       <CreditsSheet />
       <ProfileSheet />
+      <PlaybackSettingsSheet />
+      <ShortcutsSheet />
       <Toasts />
       <PlayerEngine />
       <ListeningActivityPublisher />
