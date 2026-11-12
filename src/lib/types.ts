@@ -209,7 +209,7 @@ export interface UploadIntent {
   id: string;
   ownerUid: string;
   trackId?: string;
-  target?: { kind: "track" | "artist"; id: string };
+  target?: { kind: "track" | "artist" | "playlist"; id: string };
   createdAt: number;
   expiresAt: number;
   objects: StoredObject[];

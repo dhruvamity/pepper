@@ -11,7 +11,7 @@ import { ActionBar, CollectionHeader, CollectionTopBar, EmptyState, PageSkeleton
 import { Collage, Cover } from "@/components/ui/cover";
 import { Sheet, SheetItem } from "@/components/ui/sheet";
 import { TrackRow } from "@/components/ui/track-row";
-import { api, fetcher } from "@/lib/client/api";
+import { api, fetcher, uploadBlob } from "@/lib/client/api";
 import { useCatalog } from "@/lib/client/catalog";
 import { setJamOpen, startListeningJam, useJam } from "@/lib/client/jam";
 import { useLibraryActions, useMe, usePlaylistActions } from "@/lib/client/me";
@@ -46,6 +46,42 @@ export function PlaylistView() {
   const [filter, setFilter] = useState("");
   const [manage, setManage] = useState(false);
   const [visibility, setVisibility] = useState(false);
+  const [coverBusy, setCoverBusy] = useState(false);
+  const applyCover = async (body: { uploadId?: string; cover: unknown }) => {
+    const { playlist } = await api<{ playlist: Playlist }>(`/api/playlists/${id}/cover`, { method: "PATCH", body });
+    await mutate(`/api/playlists/${id}`, { playlist }, { revalidate: false });
+    await mutate("/api/me");
+    if (playlist.shared) await mutate("/api/catalog");
+  };
+  const uploadCover = async (file: File) => {
+    setCoverBusy(true);
+    try {
+      const { processCover } = await import("@/lib/client/upload/process");
+      const asset = await processCover(file);
+      const presign = await api<{ uploadId?: string; cover: Record<"sm" | "lg", { provider: string; key: string; upload: { url: string; method: string; headers: Record<string, string> } | null }> }>(`/api/playlists/${id}/cover`, {
+        body: { hash: asset.hash, ext: asset.ext, sm: { size: asset.sm.size }, lg: { size: asset.lg.size } },
+      });
+      for (const size of ["sm", "lg"] as const) if (presign.cover[size].upload) await uploadBlob(presign.cover[size].upload!, asset[size]);
+      await applyCover({ uploadId: presign.uploadId, cover: { sm: { provider: presign.cover.sm.provider, key: presign.cover.sm.key, size: asset.sm.size }, lg: { provider: presign.cover.lg.provider, key: presign.cover.lg.key, size: asset.lg.size }, color: asset.color } });
+      URL.revokeObjectURL(asset.previewUrl);
+      toast("Cover updated");
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setCoverBusy(false);
+    }
+  };
+  const removeCover = async () => {
+    setCoverBusy(true);
+    try {
+      await applyCover({ cover: null });
+      toast("Back to the collage");
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setCoverBusy(false);
+    }
+  };
   if (!p && !error) return <PageSkeleton />;
   if (!p) return <EmptyState title="Playlist not found" />;
   const owner = p.ownerUid === me?.user.uid;
@@ -262,6 +298,20 @@ export function PlaylistView() {
           }}
         >
           <h2 className="text-xl font-bold">Edit details</h2>
+          {(owner || (p.shared && me?.user.isAdmin)) && (
+            <div className="flex items-center gap-4">
+              <div className="h-20 w-20 shrink-0 overflow-hidden rounded">
+                {p.cover ? <Cover image={p.cover} className="h-full w-full" rounded="rounded" /> : <Collage images={tracks.slice(0, 4).map((t) => t.cover)} className="h-full w-full" />}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <label className={`cursor-pointer rounded-full border border-white/40 px-4 py-1.5 text-sm font-bold hover:border-white ${coverBusy ? "opacity-50" : ""}`}>
+                  {coverBusy ? "Uploading…" : "Change cover"}
+                  <input type="file" accept="image/*" className="sr-only" disabled={coverBusy} onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) void uploadCover(file); }} />
+                </label>
+                {p.cover && <button type="button" disabled={coverBusy} onClick={() => void removeCover()} className="rounded-full px-4 py-1.5 text-sm font-semibold text-subdued hover:text-white">Use collage</button>}
+              </div>
+            </div>
+          )}
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} className="h-11 w-full rounded bg-white/10 px-3 outline-none focus:ring-1 focus:ring-white/40" placeholder="Name" />
           <textarea value={desc} onChange={(e) => setDesc(e.target.value)} maxLength={300} rows={3} className="w-full rounded bg-white/10 p-3 outline-none focus:ring-1 focus:ring-white/40" placeholder="Add an optional description" />
           <div className="flex justify-end">
