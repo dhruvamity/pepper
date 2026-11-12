@@ -22,7 +22,7 @@ To keep Pepper to people you know, list their emails in `LISTENER_EMAILS` (or `@
 
 ## Friends, Jams and collaborative playlists
 
-Open **Friends & Jams** from the desktop sidebar or the mobile account menu. Share your Pepper ID to connect with another listener. Listening activity is off by default; turn it on and choose which accepted contacts may see the current song. Jam requests expire after 30 minutes. The recipient can accept or decline, and the requester can join the synchronized room after acceptance. Playlist owners can invite accepted contacts as editors; edits are logged, additive changes are transaction-safe, and replacing the full song order requires the current playlist revision.
+Open **Friends & Jams** from the desktop sidebar or the mobile account menu. Share your invite link (or let a friend scan its QR code): opening `/add/<code>` connects you in one tap, and **Replace link** retires links you already sent out. Raw Pepper IDs still work for older invites. Listening activity is off by default; turn it on and choose which accepted contacts may see the current song. Jam requests expire after 30 minutes. The recipient can accept or decline, and the requester can join the synchronized room after acceptance. Playlist owners can invite accepted contacts as editors; edits are logged, additive changes are transaction-safe, and replacing the full song order requires the current playlist revision.
 
 ## Import a music collection
 

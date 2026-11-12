@@ -208,6 +208,9 @@ export class LocalRepo implements Repo {
   async getUser(uid: string) {
     return this.state.users[uid] ?? null;
   }
+  async getUserByInviteCode(code: string) {
+    return Object.values(this.state.users).find((u) => u.inviteCode === code) ?? null;
+  }
   async saveUser(p: UserProfile) {
     this.state.users[p.uid] = { ...this.state.users[p.uid], ...p };
     this.persist();

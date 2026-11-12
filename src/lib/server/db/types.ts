@@ -50,6 +50,7 @@ export interface Repo {
 
   // Users
   getUser(uid: string): Promise<UserProfile | null>;
+  getUserByInviteCode(code: string): Promise<UserProfile | null>;
   saveUser(profile: UserProfile): Promise<void>;
   listUsers(limit: number): Promise<UserProfile[]>;
   /** Number of users, optionally only those who joined at or after `since`. */

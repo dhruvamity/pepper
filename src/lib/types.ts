@@ -166,6 +166,8 @@ export interface UserProfile {
   /** Listening presence is private until the user enables it and selects contacts. */
   activitySharing?: boolean;
   activityVisibleTo?: string[];
+  /** Short code behind the listener's invite link (/add/<code>); regenerated on request. */
+  inviteCode?: string;
 }
 
 export interface Connection {
