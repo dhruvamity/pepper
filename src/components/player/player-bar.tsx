@@ -7,7 +7,8 @@ import { useCatalog } from "@/lib/client/catalog";
 import { setJamOpen, setSharedJamVolume, useJam } from "@/lib/client/jam";
 import { useLibraryActions } from "@/lib/client/me";
 import { usePlayer } from "@/lib/client/player/store";
-import { HeartIcon, LyricsIcon, QueueIcon, VolumeIcon } from "../icons";
+import { useUI } from "@/lib/client/ui";
+import { HeartIcon, LyricsIcon, QueueIcon, SettingsIcon, VolumeIcon } from "../icons";
 import { Cover } from "../ui/cover";
 import { IconButton } from "../ui/play-button";
 import { ArtistLinks } from "../ui/track-row";
@@ -20,6 +21,7 @@ export function PlayerBar() {
   const view = usePlayer((s) => s.view);
   const volume = usePlayer((s) => s.volume);
   const muted = usePlayer((s) => s.muted);
+  const sleeping = usePlayer((s) => s.sleepAt !== null || s.sleepAfterTrack);
   const { isLiked, toggleLike } = useLibraryActions();
   const jam = useJam((s) => s.room);
   const isHost = useJam((s) => Boolean(s.room && s.room.hostUid === s.uid));
@@ -63,6 +65,9 @@ export function PlayerBar() {
         <IconButton label="Jam" active={Boolean(jam)} onClick={() => setJamOpen(true)}><Users size={18} /></IconButton>
         <IconButton label="Lyrics & now playing" active={view === "now"} onClick={() => st().setView(view === "now" ? "none" : "now")} disabled={!t}>
           <LyricsIcon size={16} />
+        </IconButton>
+        <IconButton label="Playback settings" active={sleeping} onClick={() => useUI.getState().setPlaybackSettingsOpen(true)}>
+          <SettingsIcon size={16} />
         </IconButton>
         <IconButton label="Queue" active={view === "queue"} onClick={() => st().setView(view === "queue" ? "none" : "queue")}>
           <QueueIcon size={16} />
