@@ -32,7 +32,6 @@ export default function OnboardingPage() {
       router.replace("/");
     } catch (e) {
       toast((e as Error).message, "error");
-      sessionStorage.setItem("pepper.skipOnboarding", "1");
       router.replace("/");
     } finally {
       setBusy(false);
