@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         localStorage.removeItem("pepper.player");
         localStorage.removeItem("pepper.pendingPlay");
-        sessionStorage.removeItem("pepper.skipOnboarding");
+        localStorage.removeItem("pepper.onboardingDismissed");
       } catch { /* storage may be disabled */ }
     }
     account.current = next?.uid ?? null;

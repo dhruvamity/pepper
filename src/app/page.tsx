@@ -6,6 +6,7 @@ import { Avatar, TopBar } from "@/components/nav/top-bar";
 import { Section } from "@/components/ui/cards";
 import { EmptyState } from "@/components/ui/collection";
 import { AlbumCard, ArtistCard, MixCard, PlaylistCard, TrackCard } from "@/components/ui/media";
+import { OnboardingCard } from "@/components/ui/onboarding-card";
 import { fetcher } from "@/lib/client/api";
 import { useCatalog } from "@/lib/client/catalog";
 import { useMe } from "@/lib/client/me";
@@ -141,6 +142,7 @@ export default function HomePage() {
       </TopBar>
       <div className="relative">
         <h1 className="px-4 text-2xl font-bold tracking-tight sm:px-6 sm:text-[32px]">{greeting()}</h1>
+        <OnboardingCard />
 
         {(isLoading || homeLoading) && !data && (
           <div className="grid animate-pulse grid-cols-2 gap-2 px-4 sm:gap-4 sm:px-6 lg:grid-cols-3">
