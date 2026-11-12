@@ -87,6 +87,7 @@ export class LocalRepo implements Repo {
   private mtime = 0;
   private jams = new Map<string, JamDocument>();
   private jamListeners = new Map<string, Set<(jam: JamDocument | null) => void>>();
+  private activityListeners = new Set<(uid: string) => void>();
 
   constructor(dir = config.dataDir) {
     this.file = path.join(dir, "db.json");
@@ -286,6 +287,20 @@ export class LocalRepo implements Repo {
     this.persist(true);
     return next;
   }
+  watchActivities(uids: string[], emit: (activities: ListeningActivity[]) => void) {
+    const wanted = new Set(uids);
+    const snapshot = () => emit([...wanted].map((uid) => this.state.activities[uid]).filter((a): a is ListeningActivity => Boolean(a)));
+    const listener = (uid: string) => {
+      if (wanted.has(uid)) snapshot();
+    };
+    this.activityListeners.add(listener);
+    queueMicrotask(() => {
+      if (this.activityListeners.has(listener)) snapshot();
+    });
+    return () => {
+      this.activityListeners.delete(listener);
+    };
+  }
   async getActivity(uid: string) {
     this.fresh();
     return this.state.activities[uid] ?? null;
@@ -298,6 +313,7 @@ export class LocalRepo implements Repo {
     this.fresh();
     if (activity) this.state.activities[uid] = structuredClone(activity);
     else delete this.state.activities[uid];
+    for (const emit of this.activityListeners) emit(uid);
     this.persist();
   }
   async deleteExpiredActivities(now: number, limit: number) {
