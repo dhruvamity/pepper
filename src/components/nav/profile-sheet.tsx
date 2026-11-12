@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Users } from "lucide-react";
+import { User as UserIcon, Users } from "lucide-react";
 import { useAuth } from "@/lib/client/auth";
 import { sendJamAction } from "@/lib/client/jam";
 import { useMe } from "@/lib/client/me";
@@ -37,6 +37,9 @@ export function ProfileSheet() {
         </SheetItem>
         <SheetItem icon={<LibraryIcon />} onClick={() => go("/library")}>
           Your Library
+        </SheetItem>
+        <SheetItem icon={<UserIcon size={20} />} onClick={() => go("/you")}>
+          You
         </SheetItem>
         <SheetItem icon={<Users size={20} />} onClick={() => go("/friends")}>
           Friends & Jams

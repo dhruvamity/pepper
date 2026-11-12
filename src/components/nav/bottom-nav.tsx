@@ -1,11 +1,10 @@
 "use client";
 
-import { Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { setJamOpen, useJam } from "@/lib/client/jam";
 import { useMe } from "@/lib/client/me";
-import { ChartIcon, HomeIcon, LibraryIcon, SearchIcon, UploadIcon } from "../icons";
+import { HomeIcon, LibraryIcon, SearchIcon } from "../icons";
+import { Avatar } from "./top-bar";
 
 function Tab({ href, label, active, icon }: { href: string; label: string; active: boolean; icon: React.ReactNode }) {
   return (
@@ -16,11 +15,11 @@ function Tab({ href, label, active, icon }: { href: string; label: string; activ
   );
 }
 
-/** Phone tab bar (Home · Search · Your Library · Stats · Admin). */
+/** Phone tab bar: Home · Search · Your Library · You (stats, friends, settings and admin live under You). */
 export function BottomNav() {
   const path = usePathname();
-  const jam = useJam((s) => s.room);
   const { data: me } = useMe();
+  const you = path === "/you" || path === "/stats" || path.startsWith("/friends") || path.startsWith("/admin") || path.startsWith("/add/") || (!!me && path === `/user/${me.user.uid}`);
   return (
     <nav
       aria-label="Main"
@@ -29,11 +28,7 @@ export function BottomNav() {
       <Tab href="/" label="Home" active={path === "/"} icon={<HomeIcon filled={path === "/"} />} />
       <Tab href="/search" label="Search" active={path.startsWith("/search")} icon={<SearchIcon bold={path.startsWith("/search")} />} />
       <Tab href="/library" label="Your Library" active={path.startsWith("/library") || path === "/liked"} icon={<LibraryIcon filled={path.startsWith("/library")} />} />
-      <button type="button" onClick={() => setJamOpen(true)} className={`flex flex-1 flex-col items-center justify-center gap-1 text-[10px] font-medium ${jam ? "text-accent" : "text-subdued"}`}>
-        <Users size={24} /> Jam
-      </button>
-      <Tab href="/stats" label="Stats" active={path === "/stats"} icon={<ChartIcon />} />
-      {me?.user.isAdmin && <Tab href="/admin/upload" label="Admin" active={path.startsWith("/admin")} icon={<UploadIcon />} />}
+      <Tab href="/you" label="You" active={you} icon={<span className={`rounded-full ${you ? "ring-2 ring-white" : ""}`}><Avatar size={24} /></span>} />
     </nav>
   );
 }
