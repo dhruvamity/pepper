@@ -77,12 +77,13 @@ export default function LibraryPage() {
         title: p.name,
         subtitle: p.shared ? "Playlist" : `Playlist • ${p.ownerName}`,
         href: `/playlist/${p.id}`,
-        images: p.trackIds.slice(0, 4).map((id) => catalog.byId.get(id)?.cover),
+        image: p.cover,
+        images: p.cover ? undefined : p.trackIds.slice(0, 4).map((id) => catalog.byId.get(id)?.cover),
         at: p.updatedAt,
       });
     }
     for (const [id, at] of Object.entries(me.library.playlists ?? {})) {
-      const p = catalog.playlists.get(id);
+      const p = catalog.playlists.get(id) ?? me.savedPlaylists?.find((x) => x.id === id);
       if (!p || me.playlists.some((x) => x.id === id)) continue;
       out.push({
         key: `p-${id}`,
@@ -91,7 +92,8 @@ export default function LibraryPage() {
         title: p.name,
         subtitle: p.shared ? "Playlist" : `Playlist • ${p.ownerName}`,
         href: `/playlist/${id}`,
-        images: p.trackIds.slice(0, 4).map((t) => catalog.byId.get(t)?.cover),
+        image: p.cover,
+        images: p.cover ? undefined : p.trackIds.slice(0, 4).map((t) => catalog.byId.get(t)?.cover),
         at,
       });
     }
@@ -187,8 +189,8 @@ export default function LibraryPage() {
         )}
         {items.map((i) => {
           if (i.kind === "playlist") {
-            const p = me!.playlists.find((x) => x.id === i.id) ?? catalog!.playlists.get(i.id)!;
-            return <PlaylistCard key={i.key} playlist={p} />;
+            const p = me!.playlists.find((x) => x.id === i.id) ?? catalog!.playlists.get(i.id) ?? me!.savedPlaylists?.find((x) => x.id === i.id);
+            return p ? <PlaylistCard key={i.key} playlist={p} /> : null;
           }
           if (i.kind === "artist") return <ArtistCard key={i.key} artist={catalog!.artists.get(i.id)!} />;
           return <AlbumCard key={i.key} album={catalog!.albums.get(i.id)!} />;

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import type { ImageSet, Playlist } from "@/lib/types";
+import type { ImageSet } from "@/lib/types";
 import { mediaUrl } from "@/lib/util";
+import { playlistIsLinkable } from "@/lib/playlists";
 import { repo } from "./db";
 
 /**
@@ -75,15 +76,17 @@ export async function artistPreview(id: string): Promise<Metadata> {
   return previewMetadata({ title: artist.name, description: `Artist · ${tracks.length} song${tracks.length === 1 ? "" : "s"} on Pepper`, path: `/artist/${id}`, image, type: "profile" });
 }
 
-/** Whether a playlist's name and cover may appear in a link preview (anyone with the link sees it). */
-export function playlistIsLinkable(p: Playlist | null | undefined): p is Playlist {
-  return Boolean(p && (p.shared || p.visibility === "link" || p.visibility === "public"));
+export async function userPreview(id: string): Promise<Metadata> {
+  const user = await (await repo()).getUser(id).catch(() => null);
+  // Contacts-only profiles stay anonymous in previews.
+  if (!user || user.profileVisibility === "contacts") return previewMetadata({ title: "Listener", description: "A listener on Pepper", path: `/user/${id}` });
+  return previewMetadata({ title: user.name, description: `${user.name} on Pepper · top artists and public playlists`, path: `/user/${id}`, type: "profile" });
 }
 
 export async function playlistPreview(id: string): Promise<Metadata> {
   const db = await repo();
   const p = await db.getPlaylist(id).catch(() => null);
-  if (!playlistIsLinkable(p)) return previewMetadata({ title: "Playlist", description: "A playlist on Pepper", path: `/playlist/${id}` });
+  if (!p || !playlistIsLinkable(p)) return previewMetadata({ title: "Playlist", description: "A playlist on Pepper", path: `/playlist/${id}` });
   let image = p.cover;
   if (!image && p.trackIds.length) {
     const catalog = await db.getCatalog().catch(() => null);

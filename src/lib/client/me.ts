@@ -1,7 +1,7 @@
 "use client";
 
 import useSWR, { useSWRConfig } from "swr";
-import type { Playlist, UserLibrary, UserProfile } from "@/lib/types";
+import type { Playlist, PlaylistVisibility, UserLibrary, UserProfile } from "@/lib/types";
 import { api, fetcher } from "./api";
 import { useAuth } from "./auth";
 import { toast } from "./toast";
@@ -10,6 +10,8 @@ export interface MeResponse {
   user: UserProfile & { isAdmin: boolean };
   library: UserLibrary;
   playlists: Playlist[];
+  /** Other listeners' link/public playlists saved to the library (not part of the catalog). */
+  savedPlaylists?: Playlist[];
 }
 
 export function useMe() {
@@ -105,7 +107,7 @@ export function usePlaylistActions() {
     return playlist;
   }
 
-  async function updatePlaylist(id: string, patch: { name?: string; description?: string; add?: string[]; remove?: string[]; trackIds?: string[]; expectedRevision?: number }) {
+  async function updatePlaylist(id: string, patch: { name?: string; description?: string; visibility?: PlaylistVisibility; add?: string[]; remove?: string[]; trackIds?: string[]; expectedRevision?: number }) {
     const { playlist } = await api<{ playlist: Playlist }>(`/api/playlists/${id}`, { method: "PATCH", body: patch });
     await mutate<MeResponse>(
       "/api/me",

@@ -1,22 +1,29 @@
 "use client";
 
-import { Clock3, Users } from "lucide-react";
+import { Clock3, Globe, Link2, Lock, Users } from "lucide-react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { useSWRConfig } from "swr";
 import useSWR from "swr";
-import { EditIcon, HeartIcon, MoreIcon, TrashIcon } from "@/components/icons";
+import { EditIcon, HeartIcon, MoreIcon, ShareIcon, TrashIcon } from "@/components/icons";
 import { ActionBar, CollectionHeader, CollectionTopBar, EmptyState, PageSkeleton, TrackTable, useTracks } from "@/components/ui/collection";
-import { Collage } from "@/components/ui/cover";
+import { Collage, Cover } from "@/components/ui/cover";
 import { Sheet, SheetItem } from "@/components/ui/sheet";
 import { TrackRow } from "@/components/ui/track-row";
 import { api, fetcher } from "@/lib/client/api";
 import { useCatalog } from "@/lib/client/catalog";
 import { setJamOpen, startListeningJam, useJam } from "@/lib/client/jam";
 import { useLibraryActions, useMe, usePlaylistActions } from "@/lib/client/me";
+import { shareLink } from "@/lib/client/player/radio";
 import { toast } from "@/lib/client/toast";
+import { playlistIsLinkable, VISIBILITY_LABEL } from "@/lib/playlists";
 import type { Playlist } from "@/lib/types";
 import { formatLongDuration } from "@/lib/util";
+
+function visibilityIcon(level: "private" | "link" | "public") {
+  return level === "public" ? <Globe size={20} /> : level === "link" ? <Link2 size={20} /> : <Lock size={20} />;
+}
 
 export function PlaylistView() {
   const { deletePlaylist, updatePlaylist } = usePlaylistActions();
@@ -38,11 +45,13 @@ export function PlaylistView() {
   const [desc, setDesc] = useState("");
   const [filter, setFilter] = useState("");
   const [manage, setManage] = useState(false);
+  const [visibility, setVisibility] = useState(false);
   if (!p && !error) return <PageSkeleton />;
   if (!p) return <EmptyState title="Playlist not found" />;
   const owner = p.ownerUid === me?.user.uid;
   const collaborator = Boolean(p.collaboratorUids?.includes(me?.user.uid ?? "") || p.collaborators?.some((item) => item.uid === me?.user.uid));
   const own = owner || collaborator || Boolean(p.shared && me?.user.isAdmin);
+  const linkable = playlistIsLinkable(p);
   const color = tracks[0]?.cover?.color ?? "#535353";
   const ctx = { type: "playlist" as const, id: p.id, name: p.name, href: `/playlist/${p.id}` };
   const total = tracks.reduce((a, t) => a + t.durationMs, 0);
@@ -63,10 +72,11 @@ export function PlaylistView() {
         kind="Playlist"
         title={p.name}
         description={p.description}
-        art={<Collage images={tracks.slice(0, 4).map((t) => t.cover)} className="aspect-square w-full" />}
+        art={p.cover ? <Cover image={p.cover} size="lg" eager className="aspect-square w-full" rounded="rounded" /> : <Collage images={tracks.slice(0, 4).map((t) => t.cover)} className="aspect-square w-full" />}
         meta={
           <>
-            {!p.shared && <span className="font-bold">{p.ownerName}</span>}
+            {!p.shared && <Link href={`/user/${p.ownerUid}`} className="font-bold hover:underline">{p.ownerName}</Link>}
+            {!p.shared && p.visibility && p.visibility !== "private" && <span className="text-white/70">• {p.visibility === "public" ? "Public" : "Link"}</span>}
             <span className="text-white/70">
               {!p.shared && "• "}
               {tracks.length} song{tracks.length === 1 ? "" : "s"}
@@ -80,7 +90,7 @@ export function PlaylistView() {
         ids={p.trackIds}
         extra={
           <>
-            {p.shared && p.ownerUid !== me?.user.uid && (
+            {linkable && !owner && !collaborator && (
               <button
                 type="button"
                 aria-label={isPlaylistSaved(p.id) ? "Remove from Your Library" : "Save to Your Library"}
@@ -99,6 +109,11 @@ export function PlaylistView() {
                   else void startListeningJam(tracks.map((track) => track.id)).catch((error: Error) => toast(error.message, "error"));
                 }}
               ><Users size={27} /></button>
+            )}
+            {linkable && (
+              <button type="button" aria-label="Share playlist" title="Share" className="text-subdued hover:text-white" onClick={() => void shareLink(`/playlist/${p.id}`, p.name)}>
+                <ShareIcon size={26} />
+              </button>
             )}
             {own && (
               <button type="button" aria-label="Playlist options" onClick={() => setMenu(true)} className="text-subdued hover:text-white">
@@ -163,6 +178,11 @@ export function PlaylistView() {
             Edit details
           </SheetItem>
           {owner && !p.shared && <SheetItem icon={<Users size={20} />} onClick={() => { setMenu(false); setManage(true); }}>Manage collaborators</SheetItem>}
+          {owner && !p.shared && <SheetItem icon={visibilityIcon(p.visibility ?? "private")} onClick={() => { setMenu(false); setVisibility(true); }}>
+            Who can see this
+            <span className="block text-xs font-normal text-subdued">{VISIBILITY_LABEL[p.visibility ?? "private"].title}</span>
+          </SheetItem>}
+          {linkable && <SheetItem icon={<ShareIcon />} onClick={() => { setMenu(false); void shareLink(`/playlist/${p.id}`, p.name); }}>Share link</SheetItem>}
           {owner && <SheetItem
             danger
             icon={<TrashIcon />}
@@ -176,6 +196,35 @@ export function PlaylistView() {
           >
             Delete playlist
           </SheetItem>}
+        </div>
+      </Sheet>
+      <Sheet open={visibility} onClose={() => setVisibility(false)} label="Who can see this playlist">
+        <div className="space-y-3 p-5">
+          <h2 className="text-xl font-bold">Who can see this playlist</h2>
+          {(["private", "link", "public"] as const).map((level) => (
+            <button
+              key={level}
+              type="button"
+              aria-pressed={(p.visibility ?? "private") === level}
+              onClick={async () => {
+                setVisibility(false);
+                if ((p.visibility ?? "private") === level) return;
+                try {
+                  await updatePlaylist(p.id, { visibility: level });
+                  toast(level === "private" ? "Playlist is private again" : level === "link" ? "Anyone with the link can open it" : "Playlist is public");
+                } catch (e) {
+                  toast((e as Error).message, "error");
+                }
+              }}
+              className={`flex w-full items-center gap-4 rounded-lg px-4 py-3 text-left ${(p.visibility ?? "private") === level ? "bg-white/15" : "bg-white/5 hover:bg-white/10"}`}
+            >
+              <span className="text-subdued">{visibilityIcon(level)}</span>
+              <span className="flex-1">
+                <span className="block font-semibold">{VISIBILITY_LABEL[level].title}</span>
+                <span className="block text-xs text-subdued">{VISIBILITY_LABEL[level].body}</span>
+              </span>
+            </button>
+          ))}
         </div>
       </Sheet>
       <Sheet open={manage} onClose={() => setManage(false)} label="Manage collaborators">

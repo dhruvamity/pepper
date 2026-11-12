@@ -60,7 +60,10 @@ export interface Repo {
   getLibrary(uid: string): Promise<UserLibrary>;
   setLibraryItem(uid: string, kind: LibraryKind, id: string, on: boolean): Promise<void>;
   listPlaylists(uid: string): Promise<Playlist[]>;
+  /** A listener's playlists with visibility "public" (for their profile). */
+  listPublicPlaylists(ownerUid: string): Promise<Playlist[]>;
   getPlaylist(id: string): Promise<Playlist | null>;
+  getPlaylists(ids: string[]): Promise<Playlist[]>;
   savePlaylist(p: Playlist): Promise<void>;
   updatePlaylist(id: string, change: (playlist: Playlist | null) => Playlist): Promise<Playlist>;
   deletePlaylist(id: string, shared?: boolean): Promise<void>;
