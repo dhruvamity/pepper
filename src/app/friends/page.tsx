@@ -8,23 +8,15 @@ import { Cover } from "@/components/ui/cover";
 import { api, fetcher } from "@/lib/client/api";
 import { joinListeningJam, respondToJamRequest, requestListeningJam } from "@/lib/client/jam";
 import { useMe } from "@/lib/client/me";
+import { useLiveActivity, type SocialResponse } from "@/lib/client/social";
 import { toast } from "@/lib/client/toast";
 import { useCatalog } from "@/lib/client/catalog";
-import type { JamRequest, ListeningActivity, UserProfile } from "@/lib/types";
-
-interface Contact {
-  id: string;
-  status: "pending" | "accepted" | "declined";
-  requestedBy: string;
-  user: Pick<UserProfile, "uid" | "name" | "photoURL">;
-  activity: ListeningActivity | null;
-}
-interface SocialResponse { connections: Contact[]; jamRequests: JamRequest[] }
 
 export default function FriendsPage() {
   const { data: me, mutate: mutateMe } = useMe();
   const { data: social, mutate: refreshSocial } = useSWR<SocialResponse>("/api/connections", fetcher, { refreshInterval: 15_000 });
   const { catalog } = useCatalog();
+  const live = useLiveActivity(Boolean(me));
   const { mutate } = useSWRConfig();
   const sharing = Boolean(me?.user.activitySharing);
   const visibleTo = me?.user.activityVisibleTo ?? [];
@@ -86,7 +78,7 @@ export default function FriendsPage() {
         <section className="space-y-3">
           <h2 className="text-lg font-bold">Your contacts <span className="text-sm font-normal text-subdued">{accepted.length}</span></h2>
           {accepted.length ? accepted.map((contact) => {
-            const activity = contact.activity;
+            const activity = live ? live.get(contact.user.uid) ?? null : contact.activity;
             const track = activity ? catalog?.byId.get(activity.trackId) : undefined;
             const canRequest = !outgoingJam.some((request) => request.toUid === contact.user.uid) && !acceptedJam.some((request) => request.toUid === contact.user.uid);
             return <div key={contact.user.uid} className="flex items-center gap-3 rounded-lg bg-card p-3 sm:p-4">

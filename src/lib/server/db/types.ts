@@ -71,6 +71,8 @@ export interface Repo {
   updateConnection(id: string, change: (connection: Connection | null) => Connection | null): Promise<Connection | null>;
   getActivity(uid: string): Promise<ListeningActivity | null>;
   getActivities(uids: string[]): Promise<ListeningActivity[]>;
+  /** Live listening presence of the given listeners: emits the current set now and after every change. */
+  watchActivities(uids: string[], emit: (activities: ListeningActivity[]) => void, fail: (error: Error) => void): () => void;
   saveActivity(uid: string, activity: ListeningActivity | null): Promise<void>;
   deleteExpiredActivities(now: number, limit: number): Promise<number>;
   listJamRequests(uid: string): Promise<JamRequest[]>;

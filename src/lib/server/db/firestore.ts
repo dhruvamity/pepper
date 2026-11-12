@@ -426,6 +426,24 @@ export class FirestoreRepo implements Repo {
     const snaps = await this.db.getAll(...unique.map((uid) => this.db.collection("activities").doc(uid)));
     return snaps.map((s) => s.data() as ListeningActivity | undefined).filter((a): a is ListeningActivity => Boolean(a));
   }
+  watchActivities(uids: string[], emit: (activities: ListeningActivity[]) => void, fail: (error: Error) => void) {
+    const unique = [...new Set(uids)].slice(0, 100);
+    if (!unique.length) {
+      queueMicrotask(() => emit([]));
+      return () => {};
+    }
+    // "in" queries take at most 30 ids; each chunk is its own listener and they merge into one list.
+    const chunks: string[][] = [];
+    for (let i = 0; i < unique.length; i += 30) chunks.push(unique.slice(i, i + 30));
+    const byChunk = new Map<number, ListeningActivity[]>();
+    const unsubscribes = chunks.map((chunk, index) =>
+      this.db.collection("activities").where(FieldPath.documentId(), "in", chunk).onSnapshot((snap) => {
+        byChunk.set(index, snap.docs.map((d) => d.data() as ListeningActivity));
+        if (byChunk.size === chunks.length) emit([...byChunk.values()].flat());
+      }, fail),
+    );
+    return () => unsubscribes.forEach((u) => u());
+  }
   async saveActivity(uid: string, activity: ListeningActivity | null) {
     const ref = this.db.collection("activities").doc(uid);
     if (activity) await ref.set(activity);
